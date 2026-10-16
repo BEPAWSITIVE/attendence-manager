@@ -3,99 +3,57 @@ import { useState, useEffect, useRef } from "react";
 import { supabase, Employee } from "@/lib/supabase";
 import { localdb } from "@/lib/localdb";
 import { QRCodeCanvas } from "qrcode.react";
-import { MessageCircle, X, Download, UserPlus, FileText, Truck, Shield, Camera, Loader2, Sparkles, CheckCircle2 } from "lucide-react";
+import { 
+  MessageCircle, 
+  X, 
+  Download, 
+  UserPlus, 
+  FileText, 
+  Truck, 
+  Shield, 
+  Users, 
+  FileSpreadsheet, 
+  CheckCircle2, 
+  Loader2 
+} from "lucide-react";
 
-export default function EmployeesTab({ role = "admin", initialAiData, onAiDataConsumed }: { role?: "admin" | "guard", initialAiData?: any, onAiDataConsumed?: () => void }) {
+export default function EmployeesTab({ 
+  role = "admin", 
+  initialAiData, 
+  onAiDataConsumed 
+}: { 
+  role?: "admin" | "guard", 
+  initialAiData?: any, 
+  onAiDataConsumed?: () => void 
+}) {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [batchDrafts, setBatchDrafts] = useState<any[]>([]);
-  const [aiLoading, setAiLoading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const compressImage = (file: File): Promise<string> => {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
-        
-        const MAX_DIM = 1200;
-        if (width > height && width > MAX_DIM) {
-          height *= MAX_DIM / width;
-          width = MAX_DIM;
-        } else if (height > MAX_DIM) {
-          width *= MAX_DIM / height;
-          height = MAX_DIM;
-        }
-        
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-        
-        resolve(canvas.toDataURL('image/jpeg', 0.6));
-      };
-      img.src = URL.createObjectURL(file);
-    });
-  };
+  // CSV Upload States
+  const csvInputRef = useRef<HTMLInputElement>(null);
+  const [showCsvModal, setShowCsvModal] = useState(false);
+  const [csvPreviewData, setCsvPreviewData] = useState<Employee[]>([]);
+  const [isImportingCsv, setIsImportingCsv] = useState(false);
+  const [csvFileName, setCsvFileName] = useState("");
 
-  const handleBatchAiScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setAiLoading(true);
-    try {
-      const base64 = await compressImage(file);
-      
-      const res = await fetch('/api/analyze-batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ images: [base64], category: category })
-      });
-      
-      const data = await res.json();
-      setAiLoading(false);
-      
-      if (data.error) {
-        alert("AI Error: " + data.error);
-        return;
-      }
-      
-      if (!data.records || data.records.length === 0) {
-        alert("No records could be extracted from this image.");
-        return;
-      }
-
-      setBatchDrafts(data.records.map((r: any, idx: number) => ({ ...r, _tempId: Date.now() + idx })));
-    } catch (err: any) {
-      alert("AI Scan failed: " + err.message);
-      setAiLoading(false);
-    }
-  };
-
-  
-  
   // Form states
-  const [category, setCategory] = useState("Staff"); // Staff, Visitor, Vehicle
+  const [category, setCategory] = useState("Staff"); // Staff, Visitor, Volunteer, Workexchange, Vehicle
   const [empId, setEmpId] = useState("");
   const [name, setName] = useState("");
   const [department, setDepartment] = useState("");
   const [phone, setPhone] = useState("+91 ");
   const [vehiclePlate, setVehiclePlate] = useState("");
+  const [documentFile, setDocumentFile] = useState<File | null>(null);
+  const [groupMembers, setGroupMembers] = useState<string[]>([""]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
 
   useEffect(() => {
     if (role === 'guard' && category !== 'Visitor') {
       setCategory('Visitor');
     }
   }, [role, category]);
-
-  const [documentFile, setDocumentFile] = useState<File | null>(null);
-  const [groupMembers, setGroupMembers] = useState<string[]>([""]);
-  
-  const [isUploading, setIsUploading] = useState(false);
-  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
 
   useEffect(() => {
     fetchEmployees();
@@ -105,7 +63,7 @@ export default function EmployeesTab({ role = "admin", initialAiData, onAiDataCo
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'employees' },
-        (payload) => {
+        () => {
           fetchEmployees();
         }
       )
@@ -146,103 +104,31 @@ export default function EmployeesTab({ role = "admin", initialAiData, onAiDataCo
     setLoading(false);
   }
 
-  
+  // Pre-fill when guard takes visitor photo
   useEffect(() => {
-
-
-  
     if (initialAiData) {
-
-
-  
       setCategory('Visitor');
-
-
-  
       generateNewId('Visitor');
-
-
-  
       setName(initialAiData.name || "");
-
-
-  
       setDepartment(initialAiData.address || "");
-
-
-  
       setPhone("+91 ");
-
-
-  
       setVehiclePlate(initialAiData.id_number || "");
-
-
-  
       setGroupMembers([""]);
-
-
-  
       
-
-
-  
       if (initialAiData.capturedImage) {
-
-
-  
         fetch(initialAiData.capturedImage)
-
-
-  
           .then(res => res.arrayBuffer())
-
-
-  
           .then(buf => {
-
-
-  
             const file = new File([buf], "ai_scan_capture.jpg", { type: "image/jpeg" });
-
-
-  
             setDocumentFile(file);
-
-
-  
           }).catch(err => console.error("Error creating file from image", err));
-
-
-  
       } else {
-
-
-  
         setDocumentFile(null);
-
-
-  
       }
-
-
-  
       
-
-
-  
       setShowForm(true);
-
-
-  
       if (onAiDataConsumed) onAiDataConsumed();
-
-
-  
     }
-
-
-  
   }, [initialAiData]);
 
   const generateNewId = (cat: string) => {
@@ -251,7 +137,7 @@ export default function EmployeesTab({ role = "admin", initialAiData, onAiDataCo
     for (let i = 0; i < 4; i++) {
       result += chars.charAt(Math.floor(Math.random() * chars.length));
     }
-    const prefix = cat === 'Staff' ? 'EMP' : cat === 'Visitor' ? 'VIS' : cat === 'Parcel' ? 'PAR' : 'VEH';
+    const prefix = cat === 'Staff' ? 'EMP' : cat === 'Volunteer' ? 'VOL' : cat === 'Workexchange' ? 'WRK' : cat === 'Vehicle' ? 'VEH' : cat === 'Parcel' ? 'PAR' : 'VIS';
     setEmpId(`${prefix}-${result}`);
   };
 
@@ -273,7 +159,212 @@ export default function EmployeesTab({ role = "admin", initialAiData, onAiDataCo
     setCategory(cat);
     generateNewId(cat);
     if (cat === 'Vehicle') {
-      setDepartment("Logistics"); // Default for vehicles
+      setDepartment("Logistics");
+    }
+  };
+
+  // CSV Parser (handles quotes, commas, CRLF/LF)
+  const parseCSV = (text: string): string[][] => {
+    const lines: string[][] = [];
+    let row: string[] = [];
+    let inQuotes = false;
+    let currentVal = '';
+    let i = 0;
+
+    while (i < text.length) {
+      const char = text[i];
+      const nextChar = i + 1 < text.length ? text[i + 1] : '';
+
+      if (char === '"') {
+        if (inQuotes && nextChar === '"') {
+          currentVal += '"';
+          i++; // skip escaped quote
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        row.push(currentVal.trim());
+        currentVal = '';
+      } else if ((char === '' || char === '
+') && !inQuotes) {
+        if (char === '' && nextChar === '
+') {
+          i++;
+        }
+        row.push(currentVal.trim());
+        currentVal = '';
+        if (row.some(cell => cell.length > 0)) {
+          lines.push(row);
+        }
+        row = [];
+      } else {
+        currentVal += char;
+      }
+      i++;
+    }
+
+    if (currentVal.length > 0 || row.length > 0) {
+      row.push(currentVal.trim());
+      if (row.some(cell => cell.length > 0)) {
+        lines.push(row);
+      }
+    }
+
+    return lines;
+  };
+
+  const parseCsvToEmployees = (text: string, existingList: Employee[]): Employee[] => {
+    const rows = parseCSV(text);
+    if (rows.length < 2) return [];
+
+    const headers = rows[0].map(h => h.toLowerCase().replace(/[^a-z0-9]/g, ''));
+    
+    const nameIdx = headers.findIndex(h => h.includes('name') || h === 'person' || h === 'employee');
+    const catIdx = headers.findIndex(h => h.includes('cat') || h.includes('type') || h.includes('role') || h.includes('designation'));
+    const deptIdx = headers.findIndex(h => h.includes('dept') || h.includes('department') || h.includes('purpose') || h.includes('org'));
+    const phoneIdx = headers.findIndex(h => h.includes('phone') || h.includes('mobile') || h.includes('contact') || h.includes('cell'));
+    const idNumIdx = headers.findIndex(h => h.includes('identity') || h.includes('aadhar') || h.includes('pan') || h.includes('plate') || h.includes('license'));
+    const empIdIdx = headers.findIndex(h => h === 'empid' || h === 'id' || h === 'code' || h === 'employeeid');
+
+    const usedIds = new Set(existingList.map(e => e.empId));
+    const result: Employee[] = [];
+
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r];
+      const rawName = nameIdx !== -1 && row[nameIdx] ? row[nameIdx].trim() : '';
+      if (!rawName) continue;
+
+      const rawCat = catIdx !== -1 && row[catIdx] ? row[catIdx].trim().toLowerCase() : '';
+      let cat = 'Staff';
+      if (rawCat.includes('vol')) cat = 'Volunteer';
+      else if (rawCat.includes('work') || rawCat.includes('exchange')) cat = 'Workexchange';
+      else if (rawCat.includes('veh')) cat = 'Vehicle';
+      else if (rawCat.includes('vis')) cat = 'Visitor';
+      else if (rawCat.includes('par')) cat = 'Parcel';
+      else cat = 'Staff';
+
+      let dept = deptIdx !== -1 && row[deptIdx] ? row[deptIdx].trim() : '';
+      if (!dept) {
+        dept = cat === 'Vehicle' ? 'Logistics' : 'General';
+      }
+
+      let ph = phoneIdx !== -1 && row[phoneIdx] ? row[phoneIdx].trim() : '';
+      if (ph && !ph.startsWith('+')) {
+        const cleanDigits = ph.replace(/\D/g, '');
+        if (cleanDigits.length === 10) {
+          ph = '+91 ' + cleanDigits;
+        }
+      }
+
+      const idVal = idNumIdx !== -1 && row[idNumIdx] ? row[idNumIdx].trim() : '';
+
+      let id = empIdIdx !== -1 && row[empIdIdx] ? row[empIdIdx].trim() : '';
+      if (!id || usedIds.has(id)) {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        const prefix = cat === 'Staff' ? 'EMP' : cat === 'Volunteer' ? 'VOL' : cat === 'Workexchange' ? 'WRK' : cat === 'Vehicle' ? 'VEH' : 'VIS';
+        let uniqueId = '';
+        do {
+          let code = '';
+          for (let c = 0; c < 4; c++) {
+            code += chars.charAt(Math.floor(Math.random() * chars.length));
+          }
+          uniqueId = `${prefix}-${code}`;
+        } while (usedIds.has(uniqueId));
+        id = uniqueId;
+      }
+      usedIds.add(id);
+
+      result.push({
+        empId: id,
+        name: rawName,
+        category: cat,
+        department: dept,
+        phone: ph || '+91 ',
+        vehicle_plate: idVal || undefined,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    return result;
+  };
+
+  const downloadCsvTemplate = () => {
+    const csvContent = [
+      "Name,Category,Department,Phone,Identity_ID,EmpId",
+      "Ramesh Sharma,Staff,Operations,+91 9876543210,1234-5678-9012,",
+      "Sunita Patel,Volunteer,Kitchen,+91 9876543211,ABCDE1234F,",
+      "Amit Verma,Work Exchange,Permaculture,+91 9876543212,,",
+      "Delivery Van 01,Vehicle,Logistics,,MH-12-AB-1234,"
+    ].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "registry_import_template.csv";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCsvFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setCsvFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      if (!text) {
+        alert("The selected CSV file is empty.");
+        return;
+      }
+      const parsed = parseCsvToEmployees(text, employees);
+      if (parsed.length === 0) {
+        alert("No valid rows could be found in the CSV. Please make sure the CSV has column headers (e.g. Name, Category, Department, Phone) and at least one person's name.");
+        return;
+      }
+      setCsvPreviewData(parsed);
+      setShowCsvModal(true);
+    };
+    reader.onerror = () => {
+      alert("Failed to read the file.");
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const confirmCsvImport = async () => {
+    if (csvPreviewData.length === 0) return;
+    setIsImportingCsv(true);
+
+    try {
+      if (navigator.onLine) {
+        const batchSize = 50;
+        for (let i = 0; i < csvPreviewData.length; i += batchSize) {
+          const chunk = csvPreviewData.slice(i, i + batchSize);
+          const { error } = await supabase.from('employees').insert(chunk);
+          if (error) throw error;
+        }
+      } else {
+        for (const emp of csvPreviewData) {
+          await localdb.employeeQueue.put(emp);
+        }
+        const cached = localStorage.getItem('cached_employees');
+        const currentList = cached ? JSON.parse(cached) : [];
+        const mergedList = [...csvPreviewData, ...currentList];
+        localStorage.setItem('cached_employees', JSON.stringify(mergedList));
+      }
+
+      const count = csvPreviewData.length;
+      setShowCsvModal(false);
+      setCsvPreviewData([]);
+      await fetchEmployees();
+      alert(`Success! ${count} profiles have been added to the registry.`);
+    } catch (err: any) {
+      alert("Error importing profiles: " + (err.message || err));
+    } finally {
+      setIsImportingCsv(false);
     }
   };
 
@@ -293,7 +384,7 @@ export default function EmployeesTab({ role = "admin", initialAiData, onAiDataCo
       try {
         const fileExt = documentFile.name.split('.').pop() || 'jpg';
         const fileName = `${empId}_${Date.now()}.${fileExt}`.replace(/\s+/g, '_');
-        const { data, error } = await supabase.storage.from('documents').upload(fileName, documentFile, { cacheControl: '3600', upsert: false });
+        const { error } = await supabase.storage.from('documents').upload(fileName, documentFile, { cacheControl: '3600', upsert: false });
         if (error) throw error;
         const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(fileName);
         document_url = publicUrl;
@@ -312,7 +403,7 @@ export default function EmployeesTab({ role = "admin", initialAiData, onAiDataCo
       phone, 
       category,
       document_url: document_url || undefined,
-      vehicle_plate: category === 'Vehicle' ? vehiclePlate : undefined,
+      vehicle_plate: vehiclePlate || undefined,
       group_members: filteredGroup.length > 0 ? filteredGroup.join(", ") : undefined,
       createdAt: new Date().toISOString()
     };
@@ -355,13 +446,13 @@ export default function EmployeesTab({ role = "admin", initialAiData, onAiDataCo
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Header Banner
-    ctx.fillStyle = emp.category === 'Vehicle' ? '#f59e0b' : emp.category === 'Visitor' ? '#10b981' : emp.category === 'Parcel' ? '#8b5cf6' : '#2563eb';
+    ctx.fillStyle = emp.category === 'Vehicle' ? '#f59e0b' : emp.category === 'Visitor' ? '#10b981' : emp.category === 'Volunteer' ? '#9333ea' : emp.category === 'Workexchange' ? '#4f46e5' : emp.category === 'Parcel' ? '#8b5cf6' : '#2563eb';
     ctx.fillRect(0, 0, canvas.width, 140);
     
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 44px sans-serif';
     ctx.textAlign = 'center';
-    const bannerTitle = emp.category === 'Vehicle' ? 'VEHICLE PASS' : emp.category === 'Visitor' ? 'VISITOR PASS' : emp.category === 'Parcel' ? 'PARCEL TRACKER' : 'STAFF ID CARD';
+    const bannerTitle = emp.category === 'Vehicle' ? 'VEHICLE PASS' : emp.category === 'Visitor' ? 'VISITOR PASS' : emp.category === 'Volunteer' ? 'VOLUNTEER PASS' : emp.category === 'Workexchange' ? 'WORK EXCHANGE PASS' : emp.category === 'Parcel' ? 'PARCEL TRACKER' : 'STAFF ID CARD';
     ctx.fillText(bannerTitle, canvas.width / 2, 85);
 
     // Card Body
@@ -402,6 +493,10 @@ export default function EmployeesTab({ role = "admin", initialAiData, onAiDataCo
       ctx.fillStyle = '#0f172a';
       ctx.font = 'bold 24px monospace';
       ctx.fillText(`PLATE: ${emp.vehicle_plate}`, canvas.width / 2, 700);
+    } else if (emp.vehicle_plate) {
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 24px monospace';
+      ctx.fillText(`ID NO: ${emp.vehicle_plate}`, canvas.width / 2, 700);
     } else if (emp.phone) {
       ctx.fillStyle = '#0f172a';
       ctx.font = 'bold 24px monospace';
@@ -414,42 +509,43 @@ export default function EmployeesTab({ role = "admin", initialAiData, onAiDataCo
   const getCategoryIcon = (cat?: string) => {
     if (cat === 'Vehicle') return <Truck size={16} className="text-amber-500" />;
     if (cat === 'Visitor') return <UserPlus size={16} className="text-emerald-500" />;
+    if (cat === 'Volunteer') return <Users size={16} className="text-purple-500" />;
+    if (cat === 'Workexchange') return <Users size={16} className="text-indigo-500" />;
     return <Shield size={16} className="text-blue-500" />;
   };
 
   return (
     <div className="p-4 pb-20 max-w-md mx-auto space-y-4">
-              <div className="flex items-center justify-between mb-2">
-          <h2 className="text-2xl font-bold text-gray-800">Registry</h2>
-          <div className="flex items-center space-x-2">
-            {role === 'admin' && (
-              <>
-                <input 
-                  type="file" 
-                  accept="image/*"
-                  capture="environment"
-                  ref={fileInputRef}
-                  onChange={handleBatchAiScan}
-                  className="hidden"
-                />
-                <button 
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={aiLoading}
-                  className="bg-purple-100 text-purple-700 px-3 py-2 rounded-xl text-sm font-bold flex items-center shadow-sm active:scale-95 transition-transform border border-purple-200"
-                >
-                  {aiLoading ? <Loader2 size={18} className="animate-spin mr-1.5" /> : <Camera size={18} className="mr-1.5" />}
-                  AI Scan
-                </button>
-              </>
-            )}
-            <button 
-              onClick={handleOpenForm}
-              className="bg-blue-900 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center shadow-md active:scale-95 transition-transform"
-            >
-              + Add New
-            </button>
-          </div>
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-2xl font-bold text-gray-800">Registry</h2>
+        <div className="flex items-center space-x-2">
+          {role === 'admin' && (
+            <>
+              <input 
+                type="file" 
+                accept=".csv,text/csv"
+                ref={csvInputRef}
+                onChange={handleCsvFileSelect}
+                className="hidden"
+              />
+              <button 
+                onClick={() => csvInputRef.current?.click()}
+                className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 px-3 py-2 rounded-xl text-sm font-bold flex items-center shadow-sm active:scale-95 transition-all"
+                title="Upload CSV to add members in bulk"
+              >
+                <FileSpreadsheet size={18} className="mr-1.5 text-emerald-600" />
+                Upload CSV
+              </button>
+            </>
+          )}
+          <button 
+            onClick={handleOpenForm}
+            className="bg-blue-900 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center shadow-md active:scale-95 transition-transform"
+          >
+            + Add New
+          </button>
         </div>
+      </div>
 
       {showForm && (
         <div className="bg-white p-5 rounded-2xl shadow-lg border border-gray-100 mb-6 animate-fade-in relative">
@@ -463,17 +559,17 @@ export default function EmployeesTab({ role = "admin", initialAiData, onAiDataCo
             <div>
               <label className="block text-xs font-bold text-gray-500 mb-1">Category</label>
               <select 
-                  value={category}
-                  onChange={handleCategoryChange}
-                  className={`w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-medium ${role === 'guard' ? 'opacity-70 cursor-not-allowed' : ''}`}
-                  disabled={role === 'guard'}
-                >
-                  {role === 'admin' && <option value="Staff">Staff</option>}
-                  <option value="Visitor">Visitor</option>
-                  {role === 'admin' && <option value="Volunteer">Volunteer</option>}
-                  {role === 'admin' && <option value="Workexchange">Work Exchange</option>}
-                  {role === 'admin' && <option value="Vehicle">Vehicle</option>}
-                </select>
+                value={category}
+                onChange={handleCategoryChange}
+                className={`w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-medium ${role === 'guard' ? 'opacity-70 cursor-not-allowed' : ''}`}
+                disabled={role === 'guard'}
+              >
+                {role === 'admin' && <option value="Staff">Staff</option>}
+                <option value="Visitor">Visitor</option>
+                {role === 'admin' && <option value="Volunteer">Volunteer</option>}
+                {role === 'admin' && <option value="Workexchange">Work Exchange</option>}
+                {role === 'admin' && <option value="Vehicle">Vehicle</option>}
+              </select>
             </div>
 
             <div className="flex space-x-3">
@@ -516,27 +612,27 @@ export default function EmployeesTab({ role = "admin", initialAiData, onAiDataCo
               <div className="space-y-4">
                 <div className="flex space-x-3">
                   <div className="w-1/2">
-                  <label className="block text-xs font-bold text-gray-500 mb-1">
-                    {category === 'Visitor' ? 'Purpose/Org' : category === 'Parcel' ? 'Tracking # / Desc' : 'Department'}
-                  </label>
-                  <input 
-                    type="text" 
-                    value={department} 
-                    onChange={e => setDepartment(e.target.value)}
-                    className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                    <label className="block text-xs font-bold text-gray-500 mb-1">
+                      {category === 'Visitor' ? 'Purpose/Org' : category === 'Parcel' ? 'Tracking # / Desc' : 'Department'}
+                    </label>
+                    <input 
+                      type="text" 
+                      value={department} 
+                      onChange={e => setDepartment(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="w-1/2">
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Phone Number</label>
+                    <input 
+                      type="tel" 
+                      value={phone} 
+                      onChange={e => setPhone(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
                 </div>
-                <div className="w-1/2">
-                  <label className="block text-xs font-bold text-gray-500 mb-1">Phone Number</label>
-                  <input 
-                    type="tel" 
-                    value={phone} 
-                    onChange={e => setPhone(e.target.value)}
-                    className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-            
+              
                 {category !== 'Parcel' && (
                   <div className="pt-2">
                     <label className="block text-xs font-bold text-gray-500 mb-1">Identity ID No. (Aadhar, PAN, etc.)</label>
@@ -566,14 +662,14 @@ export default function EmployeesTab({ role = "admin", initialAiData, onAiDataCo
                     />
                     <div className="text-blue-600 font-bold flex flex-col items-center justify-center w-full">
                       {documentFile ? (
-                          <div className="flex flex-col items-center justify-center space-y-2">
-                            <img src={URL.createObjectURL(documentFile)} alt="Preview" className="w-full max-h-32 object-contain rounded-lg border-2 border-green-400 shadow-sm" />
-                            <div className="flex items-center text-green-600">
-                              <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                              <span>Photo Ready!</span>
-                            </div>
-                            <span className="text-xs text-gray-500 max-w-full truncate px-4">{documentFile.name}</span>
+                        <div className="flex flex-col items-center justify-center space-y-2">
+                          <img src={URL.createObjectURL(documentFile)} alt="Preview" className="w-full max-h-32 object-contain rounded-lg border-2 border-green-400 shadow-sm" />
+                          <div className="flex items-center text-green-600">
+                            <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            <span>Photo Ready!</span>
                           </div>
+                          <span className="text-xs text-gray-500 max-w-full truncate px-4">{documentFile.name}</span>
+                        </div>
                       ) : (
                         <>
                           <svg className="w-8 h-8 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
@@ -632,36 +728,111 @@ export default function EmployeesTab({ role = "admin", initialAiData, onAiDataCo
         </div>
       )}
 
-            {/* Batch Drafts */}
-      {batchDrafts.length > 0 && !showForm && (
-        <div className="mb-6 p-4 bg-purple-50 rounded-2xl border border-purple-100 shadow-sm animate-fade-in">
-          <div className="flex justify-between items-center mb-3">
-            <h3 className="font-bold text-purple-800 flex items-center"><Sparkles size={16} className="mr-2"/> AI Extracted ({batchDrafts.length})</h3>
-            <button onClick={() => setBatchDrafts([])} className="text-purple-400 hover:text-purple-600"><X size={20}/></button>
-          </div>
-          <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-            {batchDrafts.map((draft) => (
-              <div key={draft._tempId} className="bg-white p-3 rounded-xl flex justify-between items-center shadow-sm border border-purple-100">
-                <div className="overflow-hidden">
-                  <p className="font-bold text-sm text-gray-800 truncate">{draft.name || 'Unknown Name'}</p>
-                  <p className="text-[11px] text-gray-500 font-medium truncate">{draft.phone || 'No Phone'} • {draft.id_number || 'No ID'}</p>
+      {/* CSV Preview & Confirm Modal */}
+      {showCsvModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-emerald-50 to-teal-50">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-md">
+                  <FileSpreadsheet size={20} />
                 </div>
+                <div>
+                  <h3 className="font-extrabold text-gray-800 text-base">Import from CSV</h3>
+                  <p className="text-xs text-gray-500 font-medium truncate max-w-[200px]">{csvFileName} • {csvPreviewData.length} records</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => { setShowCsvModal(false); setCsvPreviewData([]); }}
+                className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-white transition-colors"
+                disabled={isImportingCsv}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="px-4 py-2 flex flex-wrap gap-1.5 border-b border-gray-100 bg-gray-50/70">
+              {['Staff', 'Volunteer', 'Workexchange', 'Vehicle', 'Visitor'].map(cat => {
+                const count = csvPreviewData.filter(d => d.category === cat).length;
+                if (count === 0) return null;
+                return (
+                  <span key={cat} className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-white border border-gray-200 text-gray-700">
+                    {cat}: <span className="text-emerald-700 font-extrabold">{count}</span>
+                  </span>
+                );
+              })}
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-2 flex-1">
+              {csvPreviewData.map((item, idx) => (
+                <div key={idx} className="bg-gray-50 border border-gray-200/80 p-3 rounded-xl flex items-center justify-between text-xs hover:border-emerald-300 transition-colors">
+                  <div className="overflow-hidden flex-1 mr-2">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-gray-900 truncate text-sm">{item.name}</span>
+                      <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                        item.category === 'Vehicle' ? 'bg-amber-100 text-amber-700' :
+                        item.category === 'Volunteer' ? 'bg-purple-100 text-purple-700' :
+                        item.category === 'Workexchange' ? 'bg-indigo-100 text-indigo-700' :
+                        item.category === 'Visitor' ? 'bg-emerald-100 text-emerald-700' :
+                        'bg-blue-100 text-blue-700'
+                      }`}>
+                        {item.category}
+                      </span>
+                    </div>
+                    <div className="text-gray-500 mt-1 flex flex-wrap gap-x-2 text-[11px] font-medium">
+                      <span>Dept: {item.department}</span>
+                      {item.phone && item.phone !== '+91 ' && <span>• Ph: {item.phone}</span>}
+                      {item.vehicle_plate && <span>• ID: {item.vehicle_plate}</span>}
+                    </div>
+                  </div>
+                  <div className="font-mono text-[10px] font-bold text-gray-400 bg-white px-2 py-1 rounded border border-gray-200">
+                    {item.empId}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="p-4 bg-gray-50 border-t border-gray-100 space-y-2">
+              <div className="flex items-center justify-between text-xs px-1">
+                <span className="text-gray-500 font-medium">Total: {csvPreviewData.length} records ready</span>
                 <button 
-                  onClick={() => {
-                    handleOpenForm();
-                    setName(draft.name || "");
-                    setPhone(draft.phone?.startsWith("+91") ? draft.phone : "+91 " + (draft.phone || ""));
-                    setVehiclePlate(draft.id_number || ""); // Identity ID / Plate mapping
-                    setDepartment(draft.address || "");
-                    // Remove from drafts so it's not processed twice
-                    setBatchDrafts(prev => prev.filter(d => d._tempId !== draft._tempId));
-                  }}
-                  className="ml-2 px-3 py-1.5 bg-purple-600 text-white text-xs font-bold rounded-lg shadow-sm whitespace-nowrap active:scale-95"
+                  type="button"
+                  onClick={downloadCsvTemplate}
+                  className="text-emerald-700 font-bold hover:underline flex items-center"
                 >
-                  Review & Save
+                  <Download size={13} className="mr-1" /> Download Template
                 </button>
               </div>
-            ))}
+
+              <div className="flex space-x-2 pt-1">
+                <button 
+                  type="button" 
+                  onClick={() => { setShowCsvModal(false); setCsvPreviewData([]); }}
+                  disabled={isImportingCsv}
+                  className="flex-1 bg-white border border-gray-200 text-gray-700 py-2.5 rounded-xl text-sm font-bold hover:bg-gray-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button" 
+                  onClick={confirmCsvImport}
+                  disabled={isImportingCsv}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl text-sm font-bold shadow-md flex items-center justify-center transition-colors disabled:opacity-50"
+                >
+                  {isImportingCsv ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin mr-2" />
+                      Importing...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={16} className="mr-1.5" />
+                      Import All ({csvPreviewData.length})
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -669,8 +840,24 @@ export default function EmployeesTab({ role = "admin", initialAiData, onAiDataCo
       {loading ? (
         <div className="text-center py-10 text-gray-400">Loading registry...</div>
       ) : employees.length === 0 ? (
-        <div className="text-center py-10 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200">
-          No profiles registered yet.
+        <div className="text-center py-10 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200 p-6 space-y-3">
+          <p>No profiles registered yet.</p>
+          {role === 'admin' && (
+            <div className="pt-2 flex justify-center space-x-2">
+              <button 
+                onClick={() => csvInputRef.current?.click()}
+                className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg font-bold hover:bg-emerald-100"
+              >
+                Upload CSV
+              </button>
+              <button 
+                onClick={downloadCsvTemplate}
+                className="text-xs text-gray-600 bg-gray-100 px-3 py-1.5 rounded-lg font-bold hover:bg-gray-200 flex items-center"
+              >
+                <Download size={12} className="mr-1" /> Template
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-3">
@@ -684,6 +871,8 @@ export default function EmployeesTab({ role = "admin", initialAiData, onAiDataCo
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg
                   ${emp.category === 'Vehicle' ? 'bg-amber-100 text-amber-700' : 
                     emp.category === 'Visitor' ? 'bg-emerald-100 text-emerald-700' : 
+                    emp.category === 'Volunteer' ? 'bg-purple-100 text-purple-700' : 
+                    emp.category === 'Workexchange' ? 'bg-indigo-100 text-indigo-700' : 
                     emp.category === 'Parcel' ? 'bg-purple-100 text-purple-700' : 
                     'bg-blue-100 text-blue-700'}`}>
                   {emp.name.charAt(0).toUpperCase()}
@@ -695,7 +884,10 @@ export default function EmployeesTab({ role = "admin", initialAiData, onAiDataCo
                       {getCategoryIcon(emp.category)} <span className="ml-1">{emp.category || 'Staff'}</span>
                     </span>
                   </div>
-                  <p className="text-sm text-gray-500 mt-0.5 font-mono text-xs">{emp.empId} • {emp.category === 'Vehicle' ? emp.vehicle_plate : emp.department}</p>
+                  <p className="text-sm text-gray-500 mt-0.5 font-mono text-xs">
+                    {emp.empId} • {emp.category === 'Vehicle' ? emp.vehicle_plate : emp.department}
+                    {emp.vehicle_plate && emp.category !== 'Vehicle' && ` • ID: ${emp.vehicle_plate}`}
+                  </p>
                 </div>
               </div>
               
@@ -724,9 +916,11 @@ export default function EmployeesTab({ role = "admin", initialAiData, onAiDataCo
               <div className={`w-full text-center py-2 mb-6 rounded-lg font-bold text-sm tracking-widest
                 ${selectedEmployee.category === 'Vehicle' ? 'bg-amber-100 text-amber-700' : 
                   selectedEmployee.category === 'Visitor' ? 'bg-emerald-100 text-emerald-700' : 
+                  selectedEmployee.category === 'Volunteer' ? 'bg-purple-100 text-purple-700' : 
+                  selectedEmployee.category === 'Workexchange' ? 'bg-indigo-100 text-indigo-700' : 
                   selectedEmployee.category === 'Parcel' ? 'bg-purple-100 text-purple-700' : 
                   'bg-blue-100 text-blue-700'}`}>
-                {selectedEmployee.category === 'Vehicle' ? 'VEHICLE PASS' : selectedEmployee.category === 'Visitor' ? 'VISITOR PASS' : selectedEmployee.category === 'Parcel' ? 'PARCEL TRACKER' : 'STAFF PASS'}
+                {selectedEmployee.category === 'Vehicle' ? 'VEHICLE PASS' : selectedEmployee.category === 'Visitor' ? 'VISITOR PASS' : selectedEmployee.category === 'Volunteer' ? 'VOLUNTEER PASS' : selectedEmployee.category === 'Workexchange' ? 'WORK EXCHANGE PASS' : selectedEmployee.category === 'Parcel' ? 'PARCEL TRACKER' : 'STAFF PASS'}
               </div>
 
               <div className="bg-white p-4 rounded-2xl shadow-inner border border-gray-100 mb-6 relative">
