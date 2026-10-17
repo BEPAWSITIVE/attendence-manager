@@ -28,7 +28,7 @@ export async function POST(req: Request) {
 Return ONLY a raw JSON object (no markdown formatting, no code blocks) with the following exact structure:
 
 If it is a delivery parcel:
-{"type": "parcel", "company_name": "Delivery company like Amazon, Flipkart, BlueDart, Swiggy", "recipient_name": "Name of person receiving it", "barcode": "Any tracking number or barcode text"}
+{"type": "parcel", "company_name": "Delivery company like Amazon, Flipkart, BlueDart, Swiggy", "recipient_name": "Name of person receiving it", "order_id": "Order ID or Order Number if printed on label (e.g. 402-1234567-8901234, OD123456, or order #)", "barcode": "Any tracking number, AWB, or barcode number text"}
 
 If it is an ID document (for a visitor):
 {"type": "visitor", "name": "Full name of the person", "id_number": "The ID number", "address": "Full address if visible"}

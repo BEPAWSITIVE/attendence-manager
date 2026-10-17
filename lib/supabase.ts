@@ -42,6 +42,7 @@ export interface Parcel {
   id: string;
   company_name: string;
   recipient_name: string;
+  order_id?: string;
   barcode?: string;
   photo_url?: string;
   received_at: string;

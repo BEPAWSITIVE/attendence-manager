@@ -13,6 +13,7 @@ export default function ParcelsTab({ role = "guard", initialAiData, onAiDataCons
   // Form States
   const [companyName, setCompanyName] = useState("");
   const [recipientName, setRecipientName] = useState("");
+  const [orderId, setOrderId] = useState("");
   const [barcode, setBarcode] = useState("");
   const [documentFile, setDocumentFile] = useState<File | null>(null);
 
@@ -46,8 +47,21 @@ export default function ParcelsTab({ role = "guard", initialAiData, onAiDataCons
   useEffect(() => {
     if (initialAiData) {
       setCompanyName(initialAiData.company_name || "");
+      setOrderId(initialAiData.order_id || "");
       setBarcode(initialAiData.barcode || "");
       setRecipientName(initialAiData.recipient_name || "");
+      
+      if (initialAiData.capturedImage) {
+        fetch(initialAiData.capturedImage)
+          .then(res => res.arrayBuffer())
+          .then(buf => {
+            const file = new File([buf], "parcel_capture.jpg", { type: "image/jpeg" });
+            setDocumentFile(file);
+          }).catch(err => console.error("Error creating file from parcel capture", err));
+      } else {
+        setDocumentFile(null);
+      }
+
       setShowForm(true);
       if (onAiDataConsumed) onAiDataConsumed();
     }
@@ -86,6 +100,7 @@ export default function ParcelsTab({ role = "guard", initialAiData, onAiDataCons
   const handleOpenForm = () => {
     setCompanyName("");
     setRecipientName("");
+    setOrderId("");
     setBarcode("");
     setDocumentFile(null);
     setShowForm(true);
@@ -123,6 +138,7 @@ export default function ParcelsTab({ role = "guard", initialAiData, onAiDataCons
       id: parcelId,
       company_name: companyName,
       recipient_name: recipientName,
+      order_id: orderId || undefined,
       barcode: barcode || undefined,
       photo_url: photo_url || undefined,
       received_at: new Date().toISOString(),
@@ -132,7 +148,20 @@ export default function ParcelsTab({ role = "guard", initialAiData, onAiDataCons
     if (navigator.onLine) {
       try {
         const { error } = await supabase.from('parcels').insert([newParcel]);
-        if (error) throw error;
+        if (error) {
+          // Graceful fallback if order_id column is not yet created in Supabase
+          if (error.message?.includes('order_id')) {
+            const fallback: any = { ...newParcel };
+            delete fallback.order_id;
+            if (!fallback.barcode && orderId) {
+              fallback.barcode = orderId;
+            }
+            const res2 = await supabase.from('parcels').insert([fallback]);
+            if (res2.error) throw res2.error;
+          } else {
+            throw error;
+          }
+        }
       } catch (err: any) {
         alert("Error adding parcel: " + err.message);
         setIsUploading(false);
@@ -232,16 +261,25 @@ export default function ParcelsTab({ role = "guard", initialAiData, onAiDataCons
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Barcode / Tracking #</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-3.5 text-gray-400" size={16} />
+            <div className="flex space-x-3">
+              <div className="w-1/2">
+                <label className="block text-xs font-bold text-gray-500 mb-1">Order ID</label>
+                <input 
+                  type="text" 
+                  value={orderId} 
+                  onChange={e => setOrderId(e.target.value)}
+                  placeholder="e.g. 402-1234567..."
+                  className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 font-mono text-xs uppercase"
+                />
+              </div>
+              <div className="w-1/2">
+                <label className="block text-xs font-bold text-gray-500 mb-1">Barcode / Tracking #</label>
                 <input 
                   type="text" 
                   value={barcode} 
                   onChange={e => setBarcode(e.target.value)}
                   placeholder="Scan or type barcode"
-                  className="w-full bg-gray-50 border border-gray-200 p-3 pl-9 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 font-mono"
+                  className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 font-mono text-xs"
                 />
               </div>
             </div>
@@ -258,11 +296,14 @@ export default function ParcelsTab({ role = "guard", initialAiData, onAiDataCons
                 />
                 <div className="text-purple-600 font-bold flex flex-col items-center justify-center w-full">
                   {documentFile ? (
-                    <>
-                      <CheckCircle2 size={28} className="mb-1 text-green-500" />
-                      <span className="text-green-600 text-sm">Photo Captured!</span>
-                      <span className="text-xs text-gray-500 mt-1 max-w-full truncate px-4 font-medium">{documentFile.name}</span>
-                    </>
+                    <div className="flex flex-col items-center justify-center space-y-2">
+                      <img src={URL.createObjectURL(documentFile)} alt="Preview" className="w-full max-h-32 object-contain rounded-lg border-2 border-purple-300 shadow-sm" />
+                      <div className="flex items-center text-green-600">
+                        <CheckCircle2 size={16} className="mr-1" />
+                        <span className="text-xs font-bold">Photo Captured!</span>
+                      </div>
+                      <span className="text-xs text-gray-500 max-w-full truncate px-4 font-medium">{documentFile.name}</span>
+                    </div>
                   ) : (
                     <>
                       <Camera size={28} className="mb-1" />
@@ -321,7 +362,10 @@ export default function ParcelsTab({ role = "guard", initialAiData, onAiDataCons
                     
                     <div className="mt-3 bg-gray-50 rounded-lg p-2 text-xs text-gray-500 flex justify-between items-center">
                       <span>Rec: {formatTime(p.received_at)}</span>
-                      {p.barcode && <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-gray-200">{p.barcode}</span>}
+                      <div className="flex items-center space-x-1.5 font-mono text-[11px]">
+                        {p.order_id && <span className="bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded font-bold" title="Order ID">Ord: {p.order_id}</span>}
+                        {p.barcode && <span className="bg-white px-1.5 py-0.5 rounded border border-gray-200">{p.barcode}</span>}
+                      </div>
                     </div>
                     
                     <div className="mt-2 text-center text-xs font-bold text-purple-500 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -379,6 +423,9 @@ export default function ParcelsTab({ role = "guard", initialAiData, onAiDataCons
               <Package size={40} className="mx-auto mb-2 opacity-90" />
               <h3 className="text-xl font-bold">{pickupModal.recipient_name || "Unspecified"}</h3>
               <p className="opacity-80 text-sm font-bold tracking-widest uppercase mt-1">{pickupModal.company_name}</p>
+              {pickupModal.order_id && (
+                <p className="text-xs bg-purple-700/60 inline-block px-2.5 py-1 rounded-lg mt-2 font-mono">Order ID: {pickupModal.order_id}</p>
+              )}
             </div>
             
             <form onSubmit={handlePickupSubmit} className="p-6 space-y-4">
