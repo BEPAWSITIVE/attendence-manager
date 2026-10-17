@@ -46,6 +46,7 @@ export default function Home() {
 
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [roleLoading, setRoleLoading] = useState(false);
   const [aiVisitorData, setAiVisitorData] = useState<any>(null);
   const [aiParcelData, setAiParcelData] = useState<any>(null);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
@@ -104,18 +105,25 @@ export default function Home() {
   };
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
-      if (session) fetchRole(session.user.id);
+      if (session) {
+        await fetchRole(session.user.id);
+      }
       setLoading(false);
     });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
       if (session) {
-        fetchRole(session.user.id);
+        const hasCached = typeof window !== 'undefined' && localStorage.getItem('ams_user_role');
+        if (!hasCached) {
+          setRoleLoading(true);
+        }
+        await fetchRole(session.user.id);
+        setRoleLoading(false);
       } else {
         setRole("guard");
         setActiveTab("scanner");
@@ -165,7 +173,7 @@ export default function Home() {
     await supabase.auth.signOut();
   };
 
-  if (loading) {
+  if (loading || roleLoading) {
     return <div className="min-h-screen flex items-center justify-center bg-[#F4F9FF]"><div className="animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full"></div></div>;
   }
 

@@ -225,10 +225,22 @@ export default function ReportsTab() {
     
     acc[log.empId].daysSet.add(log.date);
     
-    if (log.totalHours) {
-      const [hours, mins] = log.totalHours.split(':').map(Number);
-      if (!isNaN(hours) && !isNaN(mins)) {
-        acc[log.empId].totalHours += hours + (mins / 60);
+    // Accurately calculate duration in hours
+    if (log.outTimestamp && log.inTimestamp && log.outTimestamp > log.inTimestamp) {
+      acc[log.empId].totalHours += (log.outTimestamp - log.inTimestamp) / 3600000;
+    } else if (log.totalHours) {
+      // Support formats like "0h 10m", "1h 45m", or "01:30"
+      const hMatch = log.totalHours.match(/(\d+)\s*h/i);
+      const mMatch = log.totalHours.match(/(\d+)\s*m/i);
+      if (hMatch || mMatch) {
+        const h = hMatch ? parseInt(hMatch[1], 10) : 0;
+        const m = mMatch ? parseInt(mMatch[1], 10) : 0;
+        acc[log.empId].totalHours += h + (m / 60);
+      } else if (log.totalHours.includes(':')) {
+        const [hours, mins] = log.totalHours.split(':').map(Number);
+        if (!isNaN(hours) && !isNaN(mins)) {
+          acc[log.empId].totalHours += hours + (mins / 60);
+        }
       }
     }
     
@@ -237,12 +249,15 @@ export default function ReportsTab() {
 
   const statsList = Object.values(employeeStats).map((stat: any) => {
     const empData = employeesMap[stat.empId] || {};
+    const totalMinutes = Math.round(stat.totalHours * 60);
+    const displayHours = Math.floor(totalMinutes / 60);
+    const displayMinutes = totalMinutes % 60;
     return {
       ...stat,
       phone: empData.phone || '',
       vehicle_plate: empData.vehicle_plate || '',
       workingDays: stat.daysSet.size,
-      totalHoursFormatted: Math.floor(stat.totalHours) + 'h ' + Math.round((stat.totalHours % 1) * 60) + 'm'
+      totalHoursFormatted: `${displayHours}h ${displayMinutes}m`
     };
   })
   .filter((stat: any) => {

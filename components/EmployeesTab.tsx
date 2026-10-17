@@ -14,7 +14,8 @@ import {
   Users, 
   FileSpreadsheet, 
   CheckCircle2, 
-  Loader2 
+  Loader2,
+  ChevronDown
 } from "lucide-react";
 
 export default function EmployeesTab({ 
@@ -36,6 +37,7 @@ export default function EmployeesTab({
   const [csvPreviewData, setCsvPreviewData] = useState<Employee[]>([]);
   const [isImportingCsv, setIsImportingCsv] = useState(false);
   const [csvFileName, setCsvFileName] = useState("");
+  const [showTemplateMenu, setShowTemplateMenu] = useState(false);
 
   // Form states
   const [category, setCategory] = useState("Staff"); // Staff, Visitor, Volunteer, Vehicle
@@ -285,23 +287,43 @@ export default function EmployeesTab({
     return result;
   };
 
-  const downloadCsvTemplate = () => {
-    const csvContent = [
-      "Name,Category,Department,Phone,Identity_ID,EmpId",
-      "Ramesh Sharma,Staff,Operations,+91 9876543210,1234-5678-9012,",
-      "Sunita Patel,Volunteer,Kitchen,+91 9876543211,ABCDE1234F,",
-      "Delivery Van 01,Vehicle,Logistics,,MH-12-AB-1234,"
-    ].join("\n");
+  const downloadCategoryTemplate = (categoryType: 'All' | 'Staff' | 'Volunteer' | 'Vehicle' | 'Visitor' = 'All') => {
+    const rows: string[] = ["Name,Category,Department,Phone,Identity_ID,EmpId"];
+    let filename = `sample_${categoryType.toLowerCase()}_template.csv`;
+
+    if (categoryType === 'Staff') {
+      rows.push("Ramesh Sharma,Staff,Operations,+91 9876543210,1234-5678-9012,");
+      rows.push("Priya Singh,Staff,Administration,+91 9876543211,PAN-ABCDE1234F,");
+    } else if (categoryType === 'Volunteer') {
+      rows.push("Sunita Patel,Volunteer,Kitchen,+91 9876543212,Aadhar-5678-9012,");
+      rows.push("Amit Kumar,Volunteer,Event Support,+91 9876543213,Voter-XYZ9876,");
+    } else if (categoryType === 'Vehicle') {
+      rows.push("Delivery Van 01,Vehicle,Logistics,,MH-12-AB-1234,");
+      rows.push("Patrol Jeep 02,Vehicle,Security,,DL-01-CD-5678,");
+    } else if (categoryType === 'Visitor') {
+      rows.push("Rahul Verma,Visitor,Maintenance,+91 9876543214,DL-12345678,");
+      rows.push("Anjali Roy,Visitor,Client Meeting,+91 9876543215,Aadhar-4321-8765,");
+    } else {
+      filename = "sample_all_categories_template.csv";
+      rows.push("Ramesh Sharma,Staff,Operations,+91 9876543210,1234-5678-9012,");
+      rows.push("Sunita Patel,Volunteer,Kitchen,+91 9876543211,ABCDE1234F,");
+      rows.push("Delivery Van 01,Vehicle,Logistics,,MH-12-AB-1234,");
+      rows.push("Rahul Verma,Visitor,Maintenance,+91 9876543214,DL-12345678,");
+    }
+
+    const csvContent = rows.join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "registry_import_template.csv";
+    link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
+
+  const downloadCsvTemplate = () => downloadCategoryTemplate('All');
 
   const handleCsvFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -523,14 +545,75 @@ export default function EmployeesTab({
                 onChange={handleCsvFileSelect}
                 className="hidden"
               />
-              <button 
-                onClick={() => csvInputRef.current?.click()}
-                className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 px-3 py-2 rounded-xl text-sm font-bold flex items-center shadow-sm active:scale-95 transition-all"
-                title="Upload CSV to add members in bulk"
-              >
-                <FileSpreadsheet size={18} className="mr-1.5 text-emerald-600" />
-                Upload CSV
-              </button>
+              {/* Upload CSV Split Button with Categories Sample Menu */}
+              <div className="relative inline-flex items-center shadow-sm rounded-xl">
+                <button 
+                  onClick={() => csvInputRef.current?.click()}
+                  className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 px-3 py-2 rounded-l-xl text-xs sm:text-sm font-bold flex items-center active:scale-95 transition-all"
+                  title="Upload CSV to add members in bulk"
+                >
+                  <FileSpreadsheet size={16} className="mr-1.5 text-emerald-600" />
+                  Upload CSV
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => setShowTemplateMenu(!showTemplateMenu)}
+                  className="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border-t border-b border-r border-emerald-200 px-2 py-2 rounded-r-xl text-xs sm:text-sm font-bold flex items-center transition-all"
+                  title="Download sample CSV template for each category"
+                >
+                  <ChevronDown size={14} className="text-emerald-700" />
+                </button>
+
+                {showTemplateMenu && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowTemplateMenu(false)} />
+                    <div className="absolute right-0 top-11 mt-1 w-64 bg-white rounded-2xl shadow-2xl border border-gray-100 p-2 z-50 animate-fade-in text-xs">
+                      <p className="px-2 py-1 font-bold text-gray-400 uppercase text-[10px] tracking-wider">Download Sample CSV</p>
+                      <button 
+                        type="button"
+                        onClick={() => { downloadCategoryTemplate('Staff'); setShowTemplateMenu(false); }}
+                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-blue-50 text-blue-700 font-bold flex items-center justify-between"
+                      >
+                        <span>👤 Staff Template</span>
+                        <Download size={13} />
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => { downloadCategoryTemplate('Volunteer'); setShowTemplateMenu(false); }}
+                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-purple-50 text-purple-700 font-bold flex items-center justify-between"
+                      >
+                        <span>🤝 Volunteer Template</span>
+                        <Download size={13} />
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => { downloadCategoryTemplate('Vehicle'); setShowTemplateMenu(false); }}
+                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-amber-50 text-amber-700 font-bold flex items-center justify-between"
+                      >
+                        <span>🚚 Vehicle Template</span>
+                        <Download size={13} />
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => { downloadCategoryTemplate('Visitor'); setShowTemplateMenu(false); }}
+                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-emerald-50 text-emerald-700 font-bold flex items-center justify-between"
+                      >
+                        <span>🏷️ Visitor Template</span>
+                        <Download size={13} />
+                      </button>
+                      <div className="border-t border-gray-100 my-1" />
+                      <button 
+                        type="button"
+                        onClick={() => { downloadCategoryTemplate('All'); setShowTemplateMenu(false); }}
+                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-gray-100 text-gray-800 font-bold flex items-center justify-between"
+                      >
+                        <span>📁 All Categories Combined</span>
+                        <Download size={13} />
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </>
           )}
           <button 
@@ -786,16 +869,21 @@ export default function EmployeesTab({
               ))}
             </div>
 
-            <div className="p-4 bg-gray-50 border-t border-gray-100 space-y-2">
-              <div className="flex items-center justify-between text-xs px-1">
+            <div className="p-4 bg-gray-50 border-t border-gray-100 space-y-2.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-1.5 px-1">
                 <span className="text-gray-500 font-medium">Total: {csvPreviewData.length} records ready</span>
-                <button 
-                  type="button"
-                  onClick={downloadCsvTemplate}
-                  className="text-emerald-700 font-bold hover:underline flex items-center"
-                >
-                  <Download size={13} className="mr-1" /> Download Template
-                </button>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-gray-400 font-medium">Samples:</span>
+                  <button type="button" onClick={() => downloadCategoryTemplate('Staff')} className="text-blue-600 font-bold hover:underline">Staff</button>
+                  <span>•</span>
+                  <button type="button" onClick={() => downloadCategoryTemplate('Volunteer')} className="text-purple-600 font-bold hover:underline">Volunteer</button>
+                  <span>•</span>
+                  <button type="button" onClick={() => downloadCategoryTemplate('Vehicle')} className="text-amber-600 font-bold hover:underline">Vehicle</button>
+                  <span>•</span>
+                  <button type="button" onClick={() => downloadCategoryTemplate('Visitor')} className="text-emerald-600 font-bold hover:underline">Visitor</button>
+                  <span>•</span>
+                  <button type="button" onClick={() => downloadCategoryTemplate('All')} className="text-gray-700 font-bold hover:underline">All</button>
+                </div>
               </div>
 
               <div className="flex space-x-2 pt-1">
@@ -963,15 +1051,42 @@ export default function EmployeesTab({
                     const qrCanvas = document.getElementById("qr-canvas") as HTMLCanvasElement;
                     if (!qrCanvas) return;
                     const cardCanvas = generateCardCanvas(qrCanvas, selectedEmployee);
-                    const url = cardCanvas.toDataURL("image/png");
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = `${selectedEmployee.name.replace(/\s+/g, '_')}_Pass.png`;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
+                    const fileName = `${selectedEmployee.name.replace(/\s+/g, '_')}_Pass.png`;
+
+                    if (cardCanvas.toBlob) {
+                      cardCanvas.toBlob((blob) => {
+                        if (!blob) {
+                          const url = cardCanvas.toDataURL("image/png");
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = fileName;
+                          document.body.appendChild(a);
+                          a.click();
+                          document.body.removeChild(a);
+                          return;
+                        }
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = fileName;
+                        document.body.appendChild(a);
+                        a.click();
+                        setTimeout(() => {
+                          document.body.removeChild(a);
+                          URL.revokeObjectURL(url);
+                        }, 1000);
+                      }, "image/png");
+                    } else {
+                      const url = cardCanvas.toDataURL("image/png");
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = fileName;
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                    }
                   }}
-                  className="flex-1 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 py-3 rounded-xl flex items-center justify-center font-bold shadow-sm transition-colors text-sm"
+                  className="flex-1 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 py-3 rounded-xl flex items-center justify-center font-bold shadow-sm transition-colors text-sm active:scale-95"
                 >
                   <Download size={18} className="mr-1" /> Download
                 </button>
