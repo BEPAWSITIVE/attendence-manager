@@ -179,7 +179,7 @@ export default function Home() {
       <div className="fixed top-20 -left-10 w-48 h-48 -left-20 bg-blue-100 rounded-full opacity-50 z-0"></div>
       <div className="fixed top-40 -right-10 w-56 h-56 -right-28 bg-green-100 rounded-full opacity-50 z-0"></div>
 
-      <header className="bg-[#F4F9FF] p-4 flex justify-between items-center z-10 relative">
+      <header className="bg-[#F4F9FF] p-4 flex justify-between items-center z-50 relative">
         <div className="flex items-center space-x-2">
 
           <div className="w-10 h-10 rounded-lg shadow-sm border border-gray-100 overflow-hidden">
@@ -219,11 +219,11 @@ export default function Home() {
             <>
               {/* Invisible backdrop to dismiss on click outside */}
               <div 
-                className="fixed inset-0 z-40" 
+                className="fixed inset-0 z-50 bg-black/20" 
                 onClick={() => setShowProfileDropdown(false)} 
               />
               
-              <div className="absolute right-0 top-12 mt-1 w-72 bg-white rounded-2xl shadow-xl border border-gray-100 p-4 z-50 animate-fade-in">
+              <div className="absolute right-0 top-12 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 z-[60] animate-fade-in">
                 <div className="flex items-center space-x-3 pb-3 border-b border-gray-100">
                   <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-500 text-white flex items-center justify-center font-bold text-lg shadow-md shadow-blue-100">
                     {session?.user?.email ? session.user.email.charAt(0).toUpperCase() : 'U'}

@@ -1,64 +1,184 @@
 "use client";
 import { useState, useEffect } from "react";
 import { supabase, AttendanceRecord } from "@/lib/supabase";
+import { localdb } from "@/lib/localdb";
 import { CalendarDays, Clock, Users, FileBarChart2, ChevronDown , Search, X, MapPin, Navigation } from "lucide-react";
 
 export default function ReportsTab() {
-  const [logs, setLogs] = useState<AttendanceRecord[]>([]);
+  const [logs, setLogs] = useState<AttendanceRecord[]>(() => {
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('cached_logs');
+      if (cached) {
+        try { return JSON.parse(cached); } catch (e) {}
+      }
+    }
+    return [];
+  });
   const [loading, setLoading] = useState(true);
-  const [selectedMonth, setSelectedMonth] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("Staff");
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [selectedCategory, setSelectedCategory] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
-  const [employeesMap, setEmployeesMap] = useState<Record<string, any>>({});
+  const [employeesMap, setEmployeesMap] = useState<Record<string, any>>(() => {
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('cached_employees');
+      if (cached) {
+        try {
+          const emps = JSON.parse(cached);
+          const map: Record<string, any> = {};
+          emps.forEach((e: any) => { if (e?.empId) map[e.empId] = e; });
+          return map;
+        } catch (e) {}
+      }
+    }
+    return {};
+  });
   const [selectedReport, setSelectedReport] = useState<any>(null);
 
   useEffect(() => {
-    const now = new Date();
-    const yyyy = now.getFullYear();
-    const mm = String(now.getMonth() + 1).padStart(2, '0');
-    setSelectedMonth(`${yyyy}-${mm}`);
-
-    const loadData = async () => {
-      if (navigator.onLine) {
-        // Fetch employees to get phone numbers and plates
-        const { data: emps } = await supabase.from('employees').select('*');
-        if (emps) {
-          const eMap: Record<string, any> = {};
-          emps.forEach(e => eMap[e.empId] = e);
-          setEmployeesMap(eMap);
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('cached_employees', JSON.stringify(emps));
-          }
-        }
-
-        const { data } = await supabase.from('attendance').select('*').order('inTimestamp', { ascending: false });
-        if (data) {
-          setLogs(data);
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('cached_logs', JSON.stringify(data));
-          }
-        }
-      } else {
-        const cached = localStorage.getItem('cached_logs');
-        if (cached) setLogs(JSON.parse(cached));
-        const cachedE = localStorage.getItem('cached_employees');
-        if (cachedE) {
-          const emps = JSON.parse(cachedE);
-          const eMap: Record<string, any> = {};
-          emps.forEach((e: any) => eMap[e.empId] = e);
-          setEmployeesMap(eMap);
-        }
-      }
-      setLoading(false);
-    };
-    
     loadData();
+
+    const handleNetworkChange = () => {
+      loadData();
+    };
+    window.addEventListener('online', handleNetworkChange);
+    window.addEventListener('offline', handleNetworkChange);
+
+    const channel = supabase
+      .channel('reports_db_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, () => {
+        loadData();
+      })
+      .subscribe();
+
+    const interval = setInterval(() => {
+      if (navigator.onLine) loadData();
+    }, 30000);
+
+    return () => {
+      window.removeEventListener('online', handleNetworkChange);
+      window.removeEventListener('offline', handleNetworkChange);
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
   }, []);
 
-  const availableMonths = Array.from(new Set(logs.map(l => l.date.substring(0, 7)))).sort().reverse();
-  if (selectedMonth && !availableMonths.includes(selectedMonth)) {
-    availableMonths.unshift(selectedMonth); // ensure current month is always an option
+  async function loadData() {
+    let allLogs: AttendanceRecord[] = [];
+    let allEmps: any[] = [];
+
+    // 1. Read cached data from localStorage first
+    if (typeof window !== 'undefined') {
+      const cachedL = localStorage.getItem('cached_logs');
+      if (cachedL) {
+        try { allLogs = JSON.parse(cachedL); } catch (e) {}
+      }
+      const cachedE = localStorage.getItem('cached_employees');
+      if (cachedE) {
+        try { allEmps = JSON.parse(cachedE); } catch (e) {}
+      }
+    }
+
+    // 2. Read localdb offline queue and merge
+    try {
+      const queuedLogs = await localdb.syncQueue.toArray();
+      if (queuedLogs && queuedLogs.length > 0) {
+        const logMap = new Map<string, AttendanceRecord>();
+        allLogs.forEach(l => logMap.set(l.recordId, l));
+        queuedLogs.forEach((q: any) => logMap.set(q.recordId, q as AttendanceRecord));
+        allLogs = Array.from(logMap.values());
+      }
+    } catch (e) {
+      console.warn("Could not read local syncQueue:", e);
+    }
+
+    try {
+      const queuedEmps = await localdb.employeeQueue.toArray();
+      if (queuedEmps && queuedEmps.length > 0) {
+        const empMap = new Map<string, any>();
+        allEmps.forEach(e => empMap.set(e.empId, e));
+        queuedEmps.forEach((q: any) => empMap.set(q.empId, q));
+        allEmps = Array.from(empMap.values());
+      }
+    } catch (e) {
+      console.warn("Could not read local employeeQueue:", e);
+    }
+
+    // Update state with local/cached data immediately so UI is never 0
+    if (allLogs.length > 0) {
+      allLogs.sort((a, b) => (b.inTimestamp || 0) - (a.inTimestamp || 0));
+      setLogs([...allLogs]);
+    }
+    if (allEmps.length > 0) {
+      const eMap: Record<string, any> = {};
+      allEmps.forEach((e: any) => { if (e?.empId) eMap[e.empId] = e; });
+      setEmployeesMap(eMap);
+    }
+
+    // 3. If online, fetch fresh data from Supabase
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      try {
+        const [empsRes, attRes] = await Promise.all([
+          supabase.from('employees').select('*'),
+          supabase.from('attendance').select('*').order('inTimestamp', { ascending: false })
+        ]);
+
+        if (!empsRes.error && empsRes.data && empsRes.data.length > 0) {
+          allEmps = empsRes.data;
+          try {
+            localStorage.setItem('cached_employees', JSON.stringify(empsRes.data));
+          } catch (e) {}
+          const eMap: Record<string, any> = {};
+          allEmps.forEach((e: any) => { if (e?.empId) eMap[e.empId] = e; });
+          setEmployeesMap(eMap);
+        }
+
+        if (!attRes.error && attRes.data && attRes.data.length > 0) {
+          let freshLogs = attRes.data as AttendanceRecord[];
+          try {
+            const queuedLogs = await localdb.syncQueue.toArray();
+            if (queuedLogs && queuedLogs.length > 0) {
+              const logMap = new Map<string, AttendanceRecord>();
+              freshLogs.forEach(l => logMap.set(l.recordId, l));
+              queuedLogs.forEach((q: any) => logMap.set(q.recordId, q as AttendanceRecord));
+              freshLogs = Array.from(logMap.values());
+            }
+          } catch (e) {}
+          freshLogs.sort((a, b) => (b.inTimestamp || 0) - (a.inTimestamp || 0));
+          allLogs = freshLogs;
+          try {
+            localStorage.setItem('cached_logs', JSON.stringify(attRes.data));
+          } catch (e) {}
+          setLogs([...allLogs]);
+        }
+      } catch (err) {
+        console.warn("Network error during reports refresh, staying with cached:", err);
+      }
+    }
+
+    setLoading(false);
   }
+
+  const availableMonths = Array.from(new Set(logs.map(l => l.date ? l.date.substring(0, 7) : "").filter(Boolean))).sort().reverse();
+  const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+  if (!availableMonths.includes(currentMonth)) {
+    availableMonths.unshift(currentMonth); // ensure current month is always an option
+  }
+
+  useEffect(() => {
+    if (logs.length > 0) {
+      const months = Array.from(new Set(logs.map(l => l.date ? l.date.substring(0, 7) : "").filter(Boolean))).sort().reverse();
+      if (months.length > 0 && !months.includes(selectedMonth)) {
+        if (months.includes(currentMonth)) {
+          setSelectedMonth(currentMonth);
+        } else {
+          setSelectedMonth(months[0]);
+        }
+      }
+    }
+  }, [logs]);
 
   const filteredLogs = logs.filter(l => {
     if (!l.date.startsWith(selectedMonth)) return false;
@@ -206,7 +326,7 @@ export default function ReportsTab() {
             </div>
           </div>
 
-          <h3 className="font-bold text-gray-700 mt-6 mb-2">Individual Performance</h3>
+          <h3 className="font-bold text-gray-700 mt-6 mb-2">Individual Records</h3>
           
           {statsList.length === 0 ? (
             <div className="text-center py-10 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200">
