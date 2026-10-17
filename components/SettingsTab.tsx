@@ -5,22 +5,59 @@ import { localdb } from "@/lib/localdb";
 import { supabase } from "@/lib/supabase";
 
 export default function SettingsTab() {
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(() => {
+    if (typeof window !== 'undefined') {
+      return (window as any).deferredPrompt || null;
+    }
+    return null;
+  });
   const [isOffline, setIsOffline] = useState(false);
   const [pendingSync, setPendingSync] = useState(0);
-  const [showIosInstructions, setShowIosInstructions] = useState(false);
+  const [showInstructions, setShowInstructions] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
+  const [platform, setPlatform] = useState<'android' | 'ios' | 'desktop'>('android');
 
   useEffect(() => {
-    // Check if installed
-    if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true) {
-      setIsStandalone(true);
+    // Check if installed in standalone PWA mode
+    const checkStandalone = () => {
+      const standalone = (
+        window.matchMedia('(display-mode: standalone)').matches ||
+        window.matchMedia('(display-mode: fullscreen)').matches ||
+        window.matchMedia('(display-mode: minimal-ui)').matches ||
+        (window.navigator as any).standalone === true ||
+        document.referrer.includes('android-app://')
+      );
+      setIsStandalone(standalone);
+    };
+    checkStandalone();
+
+    // Detect user device platform
+    const ua = navigator.userAgent || '';
+    if (/iPad|iPhone|iPod/.test(ua) && !(window as any).MSStream) {
+      setPlatform('ios');
+    } else if (/Android/.test(ua)) {
+      setPlatform('android');
+    } else {
+      setPlatform('desktop');
     }
-    // PWA Install Prompt
-    window.addEventListener('beforeinstallprompt', (e) => {
+
+    // PWA Install Prompt Listener
+    const handlePrompt = (e: any) => {
       e.preventDefault();
+      (window as any).deferredPrompt = e;
       setDeferredPrompt(e);
-    });
+    };
+    window.addEventListener('beforeinstallprompt', handlePrompt);
+    if ((window as any).deferredPrompt) {
+      setDeferredPrompt((window as any).deferredPrompt);
+    }
+
+    const handleAppInstalled = () => {
+      setIsStandalone(true);
+      setDeferredPrompt(null);
+      (window as any).deferredPrompt = null;
+    };
+    window.addEventListener('appinstalled', handleAppInstalled);
 
     // Offline Detection
     const checkOffline = () => {
@@ -78,22 +115,31 @@ export default function SettingsTab() {
     window.addEventListener('online', handleOnline);
 
     return () => {
+      window.removeEventListener('beforeinstallprompt', handlePrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
       window.removeEventListener('online', checkOffline);
       window.removeEventListener('offline', checkOffline);
       window.removeEventListener('online', handleOnline);
-    }
+    };
   }, []);
 
   const handleInstallClick = async () => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') {
-        setDeferredPrompt(null);
-        setIsStandalone(true);
+    const promptEvent = deferredPrompt || (typeof window !== 'undefined' ? (window as any).deferredPrompt : null);
+    if (promptEvent) {
+      try {
+        promptEvent.prompt();
+        const { outcome } = await promptEvent.userChoice;
+        if (outcome === 'accepted') {
+          setDeferredPrompt(null);
+          (window as any).deferredPrompt = null;
+          setIsStandalone(true);
+        }
+      } catch (err) {
+        console.warn("Install prompt failed, showing instructions:", err);
+        setShowInstructions(true);
       }
     } else {
-      setShowIosInstructions(true);
+      setShowInstructions(true);
     }
   };
 
@@ -152,27 +198,84 @@ export default function SettingsTab() {
       {!isStandalone ? (
         <button 
           onClick={handleInstallClick}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-xl font-bold shadow-md flex items-center justify-center transition-colors active:scale-95"
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-xl font-bold shadow-md flex items-center justify-center transition-all active:scale-95"
         >
           <Download size={20} className="mr-2" />
-          Download App to Home Screen
+          Install App to Device
         </button>
       ) : (
-        <div className="w-full bg-green-50 text-green-700 border border-green-200 p-4 rounded-xl font-bold flex items-center justify-center">
-          <CheckCircle2 size={20} className="mr-2" />
-          App Successfully Installed
+        <div className="w-full bg-emerald-50 text-emerald-800 border border-emerald-200 p-4 rounded-xl font-bold flex items-center justify-center shadow-sm">
+          <CheckCircle2 size={20} className="mr-2 text-emerald-600" />
+          App Successfully Installed & Ready Offline
         </div>
       )}
 
-      {showIosInstructions && (
-        <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl relative mt-4">
-          <button onClick={() => setShowIosInstructions(false)} className="absolute top-2 right-2 text-blue-400 hover:text-blue-600">×</button>
-          <h4 className="font-bold text-blue-900 flex items-center mb-2"><Info size={18} className="mr-2" /> Apple iOS Instructions</h4>
-          <p className="text-sm text-blue-800 mb-3">To install this app on your iPhone or iPad, please follow these 2 quick steps:</p>
-          <ol className="text-sm text-blue-800 space-y-2 ml-1">
-            <li className="flex items-center">1. Tap the <Share size={16} className="mx-2 bg-white p-0.5 rounded shadow-sm text-blue-600" /> Share icon at the bottom of Safari.</li>
-            <li className="flex items-center">2. Scroll down and tap <PlusSquare size={16} className="mx-2 text-gray-700" /> <b>Add to Home Screen</b>.</li>
-          </ol>
+      {showInstructions && (
+        <div className="relative mt-4 animate-fade-in">
+          {platform === 'android' ? (
+            <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl relative shadow-sm">
+              <button 
+                onClick={() => setShowInstructions(false)} 
+                className="absolute top-2.5 right-3 text-emerald-600 hover:text-emerald-800 text-xl font-bold"
+              >
+                ×
+              </button>
+              <h4 className="font-bold text-emerald-900 flex items-center mb-2">
+                <Download size={18} className="mr-2 text-emerald-600" /> How to Install on Android
+              </h4>
+              <p className="text-xs text-emerald-800 mb-3 font-medium">Follow these quick steps in Google Chrome or your Android browser:</p>
+              <ol className="text-xs text-emerald-900 space-y-2 ml-1">
+                <li className="flex items-start">
+                  <span className="font-bold mr-2 bg-emerald-200 text-emerald-800 rounded-full w-5 h-5 flex items-center justify-center text-[10px] shrink-0 mt-0.5">1</span>
+                  <span>Tap the <b>three dots (⋮)</b> in the top-right corner of Chrome.</span>
+                </li>
+                <li className="flex items-start">
+                  <span className="font-bold mr-2 bg-emerald-200 text-emerald-800 rounded-full w-5 h-5 flex items-center justify-center text-[10px] shrink-0 mt-0.5">2</span>
+                  <span>Tap <b>&quot;Install app&quot;</b> (or <b>&quot;Add to Home screen&quot;</b>).</span>
+                </li>
+                <li className="flex items-start">
+                  <span className="font-bold mr-2 bg-emerald-200 text-emerald-800 rounded-full w-5 h-5 flex items-center justify-center text-[10px] shrink-0 mt-0.5">3</span>
+                  <span>Tap <b>Install</b>. The Attendance Manager icon will be placed on your phone and works 100% offline like a native APK app!</span>
+                </li>
+              </ol>
+            </div>
+          ) : platform === 'ios' ? (
+            <div className="bg-blue-50 border border-blue-200 p-4 rounded-2xl relative shadow-sm">
+              <button 
+                onClick={() => setShowInstructions(false)} 
+                className="absolute top-2.5 right-3 text-blue-400 hover:text-blue-600 text-xl font-bold"
+              >
+                ×
+              </button>
+              <h4 className="font-bold text-blue-900 flex items-center mb-2">
+                <Info size={18} className="mr-2 text-blue-600" /> Apple iOS Instructions
+              </h4>
+              <p className="text-xs text-blue-800 mb-3 font-medium">To install on your iPhone or iPad using Safari:</p>
+              <ol className="text-xs text-blue-800 space-y-2 ml-1">
+                <li className="flex items-center">
+                  1. Tap the <Share size={15} className="mx-1.5 bg-white p-0.5 rounded shadow-sm text-blue-600" /> <b>Share</b> icon at the bottom of Safari.
+                </li>
+                <li className="flex items-center">
+                  2. Scroll down and tap <PlusSquare size={15} className="mx-1.5 text-gray-700" /> <b>Add to Home Screen</b>.
+                </li>
+              </ol>
+            </div>
+          ) : (
+            <div className="bg-gray-50 border border-gray-200 p-4 rounded-2xl relative shadow-sm">
+              <button 
+                onClick={() => setShowInstructions(false)} 
+                className="absolute top-2.5 right-3 text-gray-400 hover:text-gray-600 text-xl font-bold"
+              >
+                ×
+              </button>
+              <h4 className="font-bold text-gray-900 flex items-center mb-2">
+                <Download size={18} className="mr-2 text-blue-600" /> Install on Computer
+              </h4>
+              <p className="text-xs text-gray-700">
+                Click the <b>Install</b> icon on the right side of your Chrome/Edge browser address bar to install this app on your desktop.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
