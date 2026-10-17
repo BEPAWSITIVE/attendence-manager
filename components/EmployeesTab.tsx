@@ -288,27 +288,27 @@ export default function EmployeesTab({
   };
 
   const downloadCategoryTemplate = (categoryType: 'All' | 'Staff' | 'Volunteer' | 'Vehicle' | 'Visitor' = 'All') => {
-    const rows: string[] = ["Name,Category,Department,Phone,Identity_ID,EmpId"];
+    const rows: string[] = ["Name,Category,Department,Phone,Identity_ID"];
     let filename = `sample_${categoryType.toLowerCase()}_template.csv`;
 
     if (categoryType === 'Staff') {
-      rows.push("Ramesh Sharma,Staff,Operations,+91 9876543210,1234-5678-9012,");
-      rows.push("Priya Singh,Staff,Administration,+91 9876543211,PAN-ABCDE1234F,");
+      rows.push("Ramesh Sharma,Staff,Operations,+91 9876543210,Aadhar-1234-5678");
+      rows.push("Priya Singh,Staff,Administration,+91 9876543211,PAN-ABCDE1234F");
     } else if (categoryType === 'Volunteer') {
-      rows.push("Sunita Patel,Volunteer,Kitchen,+91 9876543212,Aadhar-5678-9012,");
-      rows.push("Amit Kumar,Volunteer,Event Support,+91 9876543213,Voter-XYZ9876,");
+      rows.push("Sunita Patel,Volunteer,Kitchen,+91 9876543212,Aadhar-5678-9012");
+      rows.push("Amit Kumar,Volunteer,Event Support,+91 9876543213,Voter-XYZ9876");
     } else if (categoryType === 'Vehicle') {
-      rows.push("Delivery Van 01,Vehicle,Logistics,,MH-12-AB-1234,");
-      rows.push("Patrol Jeep 02,Vehicle,Security,,DL-01-CD-5678,");
+      rows.push("Delivery Van 01,Vehicle,Logistics,,MH-12-AB-1234");
+      rows.push("Patrol Jeep 02,Vehicle,Security,,DL-01-CD-5678");
     } else if (categoryType === 'Visitor') {
-      rows.push("Rahul Verma,Visitor,Maintenance,+91 9876543214,DL-12345678,");
-      rows.push("Anjali Roy,Visitor,Client Meeting,+91 9876543215,Aadhar-4321-8765,");
+      rows.push("Rahul Verma,Visitor,Maintenance,+91 9876543214,DL-12345678");
+      rows.push("Anjali Roy,Visitor,Client Meeting,+91 9876543215,Aadhar-4321-8765");
     } else {
       filename = "sample_all_categories_template.csv";
-      rows.push("Ramesh Sharma,Staff,Operations,+91 9876543210,1234-5678-9012,");
-      rows.push("Sunita Patel,Volunteer,Kitchen,+91 9876543211,ABCDE1234F,");
-      rows.push("Delivery Van 01,Vehicle,Logistics,,MH-12-AB-1234,");
-      rows.push("Rahul Verma,Visitor,Maintenance,+91 9876543214,DL-12345678,");
+      rows.push("Ramesh Sharma,Staff,Operations,+91 9876543210,Aadhar-1234-5678");
+      rows.push("Sunita Patel,Volunteer,Kitchen,+91 9876543211,PAN-ABCDE1234F");
+      rows.push("Delivery Van 01,Vehicle,Logistics,,MH-12-AB-1234");
+      rows.push("Rahul Verma,Visitor,Maintenance,+91 9876543214,DL-12345678");
     }
 
     const csvContent = rows.join("\n");
@@ -546,33 +546,37 @@ export default function EmployeesTab({
                 className="hidden"
               />
               {/* Upload CSV Split Button with Categories Sample Menu */}
-              <div className="relative inline-flex items-center shadow-sm rounded-xl">
+              <div className="relative inline-flex items-stretch rounded-xl border border-emerald-200 bg-emerald-50 shadow-sm h-9">
                 <button 
+                  type="button"
                   onClick={() => csvInputRef.current?.click()}
-                  className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 px-3 py-2 rounded-l-xl text-xs sm:text-sm font-bold flex items-center active:scale-95 transition-all"
+                  className="flex items-center px-2.5 sm:px-3 text-xs sm:text-sm font-bold text-emerald-700 hover:bg-emerald-100 active:bg-emerald-200 transition-colors border-r border-emerald-200 rounded-l-[11px]"
                   title="Upload CSV to add members in bulk"
                 >
-                  <FileSpreadsheet size={16} className="mr-1.5 text-emerald-600" />
-                  Upload CSV
+                  <FileSpreadsheet size={16} className="mr-1.5 text-emerald-600 shrink-0" />
+                  <span>Upload CSV</span>
                 </button>
                 <button 
                   type="button"
                   onClick={() => setShowTemplateMenu(!showTemplateMenu)}
-                  className="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border-t border-b border-r border-emerald-200 px-2 py-2 rounded-r-xl text-xs sm:text-sm font-bold flex items-center transition-all"
+                  className="flex items-center justify-center px-2 text-emerald-700 hover:bg-emerald-100 active:bg-emerald-200 transition-colors rounded-r-[11px]"
                   title="Download sample CSV template for each category"
+                  aria-label="Download sample CSV template"
                 >
-                  <ChevronDown size={14} className="text-emerald-700" />
+                  <ChevronDown size={14} className={`text-emerald-700 transition-transform duration-200 ${showTemplateMenu ? 'rotate-180' : ''}`} />
                 </button>
 
                 {showTemplateMenu && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setShowTemplateMenu(false)} />
-                    <div className="absolute right-0 top-11 mt-1 w-64 bg-white rounded-2xl shadow-2xl border border-gray-100 p-2 z-50 animate-fade-in text-xs">
-                      <p className="px-2 py-1 font-bold text-gray-400 uppercase text-[10px] tracking-wider">Download Sample CSV</p>
+                    <div className="absolute right-0 top-full mt-1.5 w-64 bg-white rounded-2xl shadow-xl border border-gray-100 p-2 z-50 animate-fade-in text-xs">
+                      <div className="px-2.5 py-1.5 font-bold text-gray-400 uppercase text-[10px] tracking-wider border-b border-gray-100 mb-1">
+                        Download Sample CSV
+                      </div>
                       <button 
                         type="button"
                         onClick={() => { downloadCategoryTemplate('Staff'); setShowTemplateMenu(false); }}
-                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-blue-50 text-blue-700 font-bold flex items-center justify-between"
+                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-blue-50 text-blue-700 font-bold flex items-center justify-between transition-colors"
                       >
                         <span>👤 Staff Template</span>
                         <Download size={13} />
@@ -580,7 +584,7 @@ export default function EmployeesTab({
                       <button 
                         type="button"
                         onClick={() => { downloadCategoryTemplate('Volunteer'); setShowTemplateMenu(false); }}
-                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-purple-50 text-purple-700 font-bold flex items-center justify-between"
+                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-purple-50 text-purple-700 font-bold flex items-center justify-between transition-colors"
                       >
                         <span>🤝 Volunteer Template</span>
                         <Download size={13} />
@@ -588,7 +592,7 @@ export default function EmployeesTab({
                       <button 
                         type="button"
                         onClick={() => { downloadCategoryTemplate('Vehicle'); setShowTemplateMenu(false); }}
-                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-amber-50 text-amber-700 font-bold flex items-center justify-between"
+                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-amber-50 text-amber-700 font-bold flex items-center justify-between transition-colors"
                       >
                         <span>🚚 Vehicle Template</span>
                         <Download size={13} />
@@ -596,7 +600,7 @@ export default function EmployeesTab({
                       <button 
                         type="button"
                         onClick={() => { downloadCategoryTemplate('Visitor'); setShowTemplateMenu(false); }}
-                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-emerald-50 text-emerald-700 font-bold flex items-center justify-between"
+                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-emerald-50 text-emerald-700 font-bold flex items-center justify-between transition-colors"
                       >
                         <span>🏷️ Visitor Template</span>
                         <Download size={13} />
@@ -605,7 +609,7 @@ export default function EmployeesTab({
                       <button 
                         type="button"
                         onClick={() => { downloadCategoryTemplate('All'); setShowTemplateMenu(false); }}
-                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-gray-100 text-gray-800 font-bold flex items-center justify-between"
+                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-gray-100 text-gray-800 font-bold flex items-center justify-between transition-colors"
                       >
                         <span>📁 All Categories Combined</span>
                         <Download size={13} />
@@ -618,7 +622,7 @@ export default function EmployeesTab({
           )}
           <button 
             onClick={handleOpenForm}
-            className="bg-blue-900 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center shadow-md active:scale-95 transition-transform"
+            className="bg-blue-900 hover:bg-blue-800 text-white px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center shadow-sm active:scale-95 transition-all h-9 shrink-0"
           >
             + Add New
           </button>
