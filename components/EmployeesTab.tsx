@@ -568,13 +568,14 @@ export default function EmployeesTab({
 
             <div className="flex space-x-3">
               <div className="w-1/2">
-                <label className="block text-xs font-bold text-gray-500 mb-1">ID *</label>
+                <label className="block text-xs font-bold text-gray-500 mb-1">ID (Auto-generated)</label>
                 <input 
                   type="text" 
                   value={empId} 
-                  onChange={e => setEmpId(e.target.value)}
-                  className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                  required
+                  readOnly
+                  disabled
+                  className="w-full bg-gray-100 border border-gray-200 p-3 rounded-xl outline-none font-mono text-gray-500 cursor-not-allowed select-none font-bold"
+                  title="Auto-generated unique ID (non-editable)"
                 />
               </div>
               <div className="w-1/2">
