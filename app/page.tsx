@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Users, QrCode, ClipboardList, Settings, Zap, RefreshCw, LogOut } from "lucide-react";
+import { Users, QrCode, ClipboardList, Settings, Zap, RefreshCw, LogOut, User } from "lucide-react";
 import ScannerTab from '@/components/ScannerTab';
 import EmployeesTab from '@/components/EmployeesTab';
 import LogsTab from '@/components/LogsTab';
@@ -33,6 +33,7 @@ export default function Home() {
   const [role, setRole] = useState<"admin" | "guard">("guard");
   const [aiVisitorData, setAiVisitorData] = useState<any>(null);
   const [aiParcelData, setAiParcelData] = useState<any>(null);
+  const [showProfileDropdown, setShowProfileDropdown] = useState(false);
 
   const fetchRole = async (userId: string) => {
     const { data } = await supabase.from('user_roles').select('role').eq('user_id', userId).single();
@@ -113,11 +114,77 @@ export default function Home() {
           </div>
         </div>
         
-        <div className="flex space-x-2">
-          <button onClick={handleLogout} className="w-10 h-10 bg-white rounded-full shadow-sm flex items-center justify-center text-red-500 hover:text-red-600 transition-colors" title="Sign Out">
+        <div className="flex items-center space-x-2 relative">
+          {/* Profile Icon Button */}
+          <button 
+            onClick={() => setShowProfileDropdown(!showProfileDropdown)} 
+            className={`w-10 h-10 rounded-full shadow-sm flex items-center justify-center transition-all ${
+              showProfileDropdown 
+                ? 'bg-blue-600 text-white shadow-blue-200' 
+                : 'bg-white text-blue-600 hover:bg-blue-50 border border-blue-100/60'
+            }`} 
+            title="Account Profile"
+          >
+            <User size={19} />
+          </button>
+
+          <button 
+            onClick={handleLogout} 
+            className="w-10 h-10 bg-white rounded-full shadow-sm flex items-center justify-center text-red-500 hover:text-red-600 hover:bg-red-50 transition-colors border border-gray-100" 
+            title="Sign Out"
+          >
             <LogOut size={18} className="ml-0.5" />
           </button>
 
+          {/* Profile Popover Dropdown */}
+          {showProfileDropdown && (
+            <>
+              {/* Invisible backdrop to dismiss on click outside */}
+              <div 
+                className="fixed inset-0 z-40" 
+                onClick={() => setShowProfileDropdown(false)} 
+              />
+              
+              <div className="absolute right-0 top-12 mt-1 w-72 bg-white rounded-2xl shadow-xl border border-gray-100 p-4 z-50 animate-fade-in">
+                <div className="flex items-center space-x-3 pb-3 border-b border-gray-100">
+                  <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-500 text-white flex items-center justify-center font-bold text-lg shadow-md shadow-blue-100">
+                    {session?.user?.email ? session.user.email.charAt(0).toUpperCase() : 'U'}
+                  </div>
+                  <div className="overflow-hidden flex-1">
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Signed In As</p>
+                    <p className="text-xs font-bold text-gray-800 truncate" title={session?.user?.email}>
+                      {session?.user?.email || "Unknown Email"}
+                    </p>
+                    <div className="mt-1">
+                      <span className={`inline-flex items-center text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md tracking-wider ${
+                        role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-emerald-100 text-emerald-700'
+                      }`}>
+                        {role === 'admin' ? 'Admin Access' : 'Guard Access'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-3 space-y-1">
+                  <div className="flex items-center justify-between text-xs text-gray-500 py-1.5 px-2 bg-gray-50 rounded-xl">
+                    <span className="font-medium">User Role</span>
+                    <span className="font-bold text-gray-700 capitalize">{role}</span>
+                  </div>
+                  
+                  <button
+                    onClick={() => {
+                      setShowProfileDropdown(false);
+                      handleLogout();
+                    }}
+                    className="w-full mt-2 flex items-center justify-center space-x-1.5 text-xs font-bold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2.5 rounded-xl transition-colors"
+                  >
+                    <LogOut size={14} />
+                    <span>Log Out</span>
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </header>
 
