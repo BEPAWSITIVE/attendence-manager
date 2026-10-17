@@ -26,10 +26,18 @@ export default function ReportsTab() {
           const eMap: Record<string, any> = {};
           emps.forEach(e => eMap[e.empId] = e);
           setEmployeesMap(eMap);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('cached_employees', JSON.stringify(emps));
+          }
         }
 
         const { data } = await supabase.from('attendance').select('*').order('inTimestamp', { ascending: false });
-        if (data) setLogs(data);
+        if (data) {
+          setLogs(data);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('cached_logs', JSON.stringify(data));
+          }
+        }
       } else {
         const cached = localStorage.getItem('cached_logs');
         if (cached) setLogs(JSON.parse(cached));

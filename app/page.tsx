@@ -15,33 +15,91 @@ import Image from 'next/image';
 import { supabase } from "@/lib/supabase";
 
 export default function Home() {
+  const [role, setRole] = useState<"admin" | "guard">(() => {
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('ams_user_role');
+      if (cached === 'admin' || cached === 'guard') return cached;
+    }
+    return "guard";
+  });
+
   const [activeTab, setActiveTab] = useState(() => {
     if (typeof window !== 'undefined') {
-      const saved = sessionStorage.getItem('ams_active_tab');
-      if (saved) return saved;
+      const saved = localStorage.getItem('ams_active_tab') || sessionStorage.getItem('ams_active_tab');
+      const cachedRole = localStorage.getItem('ams_user_role');
+      if (saved) {
+        if (cachedRole === 'admin' && (saved === 'scanner' || saved === 'parcels')) return 'reports';
+        if (cachedRole === 'guard' && (saved === 'reports' || saved === 'settings' || saved === 'logs')) return 'scanner';
+        return saved;
+      }
+      if (cachedRole === 'admin') return 'reports';
     }
     return "scanner";
   });
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
+      localStorage.setItem('ams_active_tab', activeTab);
       sessionStorage.setItem('ams_active_tab', activeTab);
     }
   }, [activeTab]);
+
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState<"admin" | "guard">("guard");
   const [aiVisitorData, setAiVisitorData] = useState<any>(null);
   const [aiParcelData, setAiParcelData] = useState<any>(null);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
 
   const fetchRole = async (userId: string) => {
-    const { data } = await supabase.from('user_roles').select('role').eq('user_id', userId).single();
-    if (data && data.role === "admin") {
-      setRole("admin");
-      if (activeTab === "scanner") setActiveTab("reports");
-    } else {
-      setRole("guard");
+    try {
+      const { data, error } = await supabase.from('user_roles').select('role').eq('user_id', userId).single();
+      
+      if (!error && data && (data.role === "admin" || data.role === "guard")) {
+        const resolvedRole = data.role as "admin" | "guard";
+        setRole(resolvedRole);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('ams_user_role', resolvedRole);
+        }
+        if (resolvedRole === "admin") {
+          setActiveTab((prev) => (prev === "scanner" || prev === "parcels" ? "reports" : prev));
+        } else {
+          setActiveTab((prev) => (prev === "reports" || prev === "settings" || prev === "logs" ? "scanner" : prev));
+        }
+        return;
+      }
+
+      // If network error, timeout, or offline: preserve cached role
+      if (typeof window !== 'undefined') {
+        const cachedRole = localStorage.getItem('ams_user_role') as "admin" | "guard" | null;
+        if (cachedRole) {
+          setRole(cachedRole);
+          if (cachedRole === "admin") {
+            setActiveTab((prev) => (prev === "scanner" || prev === "parcels" ? "reports" : prev));
+          } else {
+            setActiveTab((prev) => (prev === "reports" || prev === "settings" || prev === "logs" ? "scanner" : prev));
+          }
+          return;
+        }
+      }
+
+      // If server responded cleanly without error but user has no admin record
+      if (!error && (!data || data.role !== "admin")) {
+        setRole("guard");
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('ams_user_role', 'guard');
+        }
+      }
+    } catch (err) {
+      console.warn("Could not fetch user role (likely offline):", err);
+      if (typeof window !== 'undefined') {
+        const cachedRole = localStorage.getItem('ams_user_role') as "admin" | "guard" | null;
+        if (cachedRole) {
+          setRole(cachedRole);
+          if (cachedRole === "admin") {
+            setActiveTab((prev) => (prev === "scanner" || prev === "parcels" ? "reports" : prev));
+          }
+        }
+      }
     }
   };
 
@@ -61,8 +119,20 @@ export default function Home() {
       } else {
         setRole("guard");
         setActiveTab("scanner");
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('ams_user_role');
+          localStorage.removeItem('ams_active_tab');
+          sessionStorage.removeItem('ams_active_tab');
+        }
       }
     });
+
+    const handleOnline = () => {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session) fetchRole(session.user.id);
+      });
+    };
+    window.addEventListener('online', handleOnline);
 
     const handleAiScan = (e: any) => {
       const data = e.detail;
@@ -79,11 +149,19 @@ export default function Home() {
 
     return () => {
       subscription.unsubscribe();
+      window.removeEventListener('online', handleOnline);
       window.removeEventListener('ai_scan_result', handleAiScan);
     };
   }, []);
 
   const handleLogout = async () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('ams_user_role');
+      localStorage.removeItem('ams_active_tab');
+      sessionStorage.removeItem('ams_active_tab');
+    }
+    setRole("guard");
+    setActiveTab("scanner");
     await supabase.auth.signOut();
   };
 
