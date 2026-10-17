@@ -278,7 +278,7 @@ export default function ParcelsTab({ role = "guard", initialAiData, onAiDataCons
               disabled={isUploading}
               className="w-full bg-purple-600 text-white py-3.5 rounded-xl font-bold shadow-md shadow-purple-200 disabled:opacity-50 mt-2"
             >
-              {isUploading ? "Saving..." : "Save & Receive at Gate"}
+              {isUploading ? "Receiving..." : "Receive Parcel"}
             </button>
           </form>
         </div>
