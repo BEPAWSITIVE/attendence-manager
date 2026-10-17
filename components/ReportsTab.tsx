@@ -175,7 +175,6 @@ export default function ReportsTab() {
             <option value="All">All Categories</option>
             <option value="Staff">Staff</option>
             <option value="Volunteer">Volunteer</option>
-            <option value="Workexchange">Work Exchange</option>
             <option value="Vehicle">Vehicle</option>
             <option value="Visitor">Visitor</option>
           </select>

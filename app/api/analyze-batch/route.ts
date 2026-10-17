@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     Your job is to read the document and extract ALL individuals/vehicles listed.
     
     If category is 'Vehicle', extract: name (driver or owner name), phone, id_number (vehicle plate), address (department or company).
-    If category is 'Staff', 'Volunteer', or 'Workexchange', extract: name, phone, id_number (ID card or Aadhar), address (department, role, or location).
+    If category is 'Staff' or 'Volunteer', extract: name, phone, id_number (ID card or Aadhar), address (department, role, or location).
     
     Return EXACTLY a JSON array of objects. Do not wrap it in markdown block quotes like \`\`\`json. Return ONLY the raw JSON array.
     Format:

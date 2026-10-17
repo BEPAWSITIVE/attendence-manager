@@ -38,7 +38,7 @@ export default function EmployeesTab({
   const [csvFileName, setCsvFileName] = useState("");
 
   // Form states
-  const [category, setCategory] = useState("Staff"); // Staff, Visitor, Volunteer, Workexchange, Vehicle
+  const [category, setCategory] = useState("Staff"); // Staff, Visitor, Volunteer, Vehicle
   const [empId, setEmpId] = useState("");
   const [name, setName] = useState("");
   const [department, setDepartment] = useState("");
@@ -137,7 +137,7 @@ export default function EmployeesTab({
     for (let i = 0; i < 4; i++) {
       result += chars.charAt(Math.floor(Math.random() * chars.length));
     }
-    const prefix = cat === 'Staff' ? 'EMP' : cat === 'Volunteer' ? 'VOL' : cat === 'Workexchange' ? 'WRK' : cat === 'Vehicle' ? 'VEH' : cat === 'Parcel' ? 'PAR' : 'VIS';
+    const prefix = cat === 'Staff' ? 'EMP' : cat === 'Volunteer' ? 'VOL' : cat === 'Vehicle' ? 'VEH' : cat === 'Parcel' ? 'PAR' : 'VIS';
     setEmpId(`${prefix}-${result}`);
   };
 
@@ -235,7 +235,6 @@ export default function EmployeesTab({
       const rawCat = catIdx !== -1 && row[catIdx] ? row[catIdx].trim().toLowerCase() : '';
       let cat = 'Staff';
       if (rawCat.includes('vol')) cat = 'Volunteer';
-      else if (rawCat.includes('work') || rawCat.includes('exchange')) cat = 'Workexchange';
       else if (rawCat.includes('veh')) cat = 'Vehicle';
       else if (rawCat.includes('vis')) cat = 'Visitor';
       else if (rawCat.includes('par')) cat = 'Parcel';
@@ -259,7 +258,7 @@ export default function EmployeesTab({
       let id = empIdIdx !== -1 && row[empIdIdx] ? row[empIdIdx].trim() : '';
       if (!id || usedIds.has(id)) {
         const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-        const prefix = cat === 'Staff' ? 'EMP' : cat === 'Volunteer' ? 'VOL' : cat === 'Workexchange' ? 'WRK' : cat === 'Vehicle' ? 'VEH' : 'VIS';
+        const prefix = cat === 'Staff' ? 'EMP' : cat === 'Volunteer' ? 'VOL' : cat === 'Vehicle' ? 'VEH' : 'VIS';
         let uniqueId = '';
         do {
           let code = '';
@@ -291,7 +290,6 @@ export default function EmployeesTab({
       "Name,Category,Department,Phone,Identity_ID,EmpId",
       "Ramesh Sharma,Staff,Operations,+91 9876543210,1234-5678-9012,",
       "Sunita Patel,Volunteer,Kitchen,+91 9876543211,ABCDE1234F,",
-      "Amit Verma,Work Exchange,Permaculture,+91 9876543212,,",
       "Delivery Van 01,Vehicle,Logistics,,MH-12-AB-1234,"
     ].join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -444,13 +442,13 @@ export default function EmployeesTab({
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Header Banner
-    ctx.fillStyle = emp.category === 'Vehicle' ? '#f59e0b' : emp.category === 'Visitor' ? '#10b981' : emp.category === 'Volunteer' ? '#9333ea' : emp.category === 'Workexchange' ? '#4f46e5' : emp.category === 'Parcel' ? '#8b5cf6' : '#2563eb';
+    ctx.fillStyle = emp.category === 'Vehicle' ? '#f59e0b' : emp.category === 'Visitor' ? '#10b981' : emp.category === 'Volunteer' ? '#9333ea' : emp.category === 'Parcel' ? '#8b5cf6' : '#2563eb';
     ctx.fillRect(0, 0, canvas.width, 140);
     
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 44px sans-serif';
     ctx.textAlign = 'center';
-    const bannerTitle = emp.category === 'Vehicle' ? 'VEHICLE PASS' : emp.category === 'Visitor' ? 'VISITOR PASS' : emp.category === 'Volunteer' ? 'VOLUNTEER PASS' : emp.category === 'Workexchange' ? 'WORK EXCHANGE PASS' : emp.category === 'Parcel' ? 'PARCEL TRACKER' : 'STAFF ID CARD';
+    const bannerTitle = emp.category === 'Vehicle' ? 'VEHICLE PASS' : emp.category === 'Visitor' ? 'VISITOR PASS' : emp.category === 'Volunteer' ? 'VOLUNTEER PASS' : emp.category === 'Parcel' ? 'PARCEL TRACKER' : 'STAFF ID CARD';
     ctx.fillText(bannerTitle, canvas.width / 2, 85);
 
     // Card Body
@@ -508,7 +506,6 @@ export default function EmployeesTab({
     if (cat === 'Vehicle') return <Truck size={16} className="text-amber-500" />;
     if (cat === 'Visitor') return <UserPlus size={16} className="text-emerald-500" />;
     if (cat === 'Volunteer') return <Users size={16} className="text-purple-500" />;
-    if (cat === 'Workexchange') return <Users size={16} className="text-indigo-500" />;
     return <Shield size={16} className="text-blue-500" />;
   };
 
@@ -565,7 +562,6 @@ export default function EmployeesTab({
                 {role === 'admin' && <option value="Staff">Staff</option>}
                 <option value="Visitor">Visitor</option>
                 {role === 'admin' && <option value="Volunteer">Volunteer</option>}
-                {role === 'admin' && <option value="Workexchange">Work Exchange</option>}
                 {role === 'admin' && <option value="Vehicle">Vehicle</option>}
               </select>
             </div>
@@ -750,7 +746,7 @@ export default function EmployeesTab({
             </div>
 
             <div className="px-4 py-2 flex flex-wrap gap-1.5 border-b border-gray-100 bg-gray-50/70">
-              {['Staff', 'Volunteer', 'Workexchange', 'Vehicle', 'Visitor'].map(cat => {
+              {['Staff', 'Volunteer', 'Vehicle', 'Visitor'].map(cat => {
                 const count = csvPreviewData.filter(d => d.category === cat).length;
                 if (count === 0) return null;
                 return (
@@ -770,7 +766,6 @@ export default function EmployeesTab({
                       <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
                         item.category === 'Vehicle' ? 'bg-amber-100 text-amber-700' :
                         item.category === 'Volunteer' ? 'bg-purple-100 text-purple-700' :
-                        item.category === 'Workexchange' ? 'bg-indigo-100 text-indigo-700' :
                         item.category === 'Visitor' ? 'bg-emerald-100 text-emerald-700' :
                         'bg-blue-100 text-blue-700'
                       }`}>
@@ -870,7 +865,6 @@ export default function EmployeesTab({
                   ${emp.category === 'Vehicle' ? 'bg-amber-100 text-amber-700' : 
                     emp.category === 'Visitor' ? 'bg-emerald-100 text-emerald-700' : 
                     emp.category === 'Volunteer' ? 'bg-purple-100 text-purple-700' : 
-                    emp.category === 'Workexchange' ? 'bg-indigo-100 text-indigo-700' : 
                     emp.category === 'Parcel' ? 'bg-purple-100 text-purple-700' : 
                     'bg-blue-100 text-blue-700'}`}>
                   {emp.name.charAt(0).toUpperCase()}
@@ -915,10 +909,9 @@ export default function EmployeesTab({
                 ${selectedEmployee.category === 'Vehicle' ? 'bg-amber-100 text-amber-700' : 
                   selectedEmployee.category === 'Visitor' ? 'bg-emerald-100 text-emerald-700' : 
                   selectedEmployee.category === 'Volunteer' ? 'bg-purple-100 text-purple-700' : 
-                  selectedEmployee.category === 'Workexchange' ? 'bg-indigo-100 text-indigo-700' : 
                   selectedEmployee.category === 'Parcel' ? 'bg-purple-100 text-purple-700' : 
                   'bg-blue-100 text-blue-700'}`}>
-                {selectedEmployee.category === 'Vehicle' ? 'VEHICLE PASS' : selectedEmployee.category === 'Visitor' ? 'VISITOR PASS' : selectedEmployee.category === 'Volunteer' ? 'VOLUNTEER PASS' : selectedEmployee.category === 'Workexchange' ? 'WORK EXCHANGE PASS' : selectedEmployee.category === 'Parcel' ? 'PARCEL TRACKER' : 'STAFF PASS'}
+                {selectedEmployee.category === 'Vehicle' ? 'VEHICLE PASS' : selectedEmployee.category === 'Visitor' ? 'VISITOR PASS' : selectedEmployee.category === 'Volunteer' ? 'VOLUNTEER PASS' : selectedEmployee.category === 'Parcel' ? 'PARCEL TRACKER' : 'STAFF PASS'}
               </div>
 
               <div className="bg-white p-4 rounded-2xl shadow-inner border border-gray-100 mb-6 relative">
