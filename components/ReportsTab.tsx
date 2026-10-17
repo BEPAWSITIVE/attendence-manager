@@ -1,10 +1,12 @@
 "use client";
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { supabase, AttendanceRecord } from "@/lib/supabase";
 import { localdb } from "@/lib/localdb";
 import { CalendarDays, Clock, Users, FileBarChart2, ChevronDown , Search, X, MapPin, Navigation } from "lucide-react";
 
 export default function ReportsTab() {
+  const [mounted, setMounted] = useState(false);
   const [logs, setLogs] = useState<AttendanceRecord[]>(() => {
     if (typeof window !== 'undefined') {
       const cached = localStorage.getItem('cached_logs');
@@ -38,6 +40,7 @@ export default function ReportsTab() {
   const [selectedReport, setSelectedReport] = useState<any>(null);
 
   useEffect(() => {
+    setMounted(true);
     loadData();
 
     const handleNetworkChange = () => {
@@ -371,16 +374,25 @@ export default function ReportsTab() {
       )}
 
       {/* Detail Modal */}
-      {selectedReport && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex flex-col p-4 animate-fade-in pb-safe">
-          <div className="bg-white rounded-3xl w-full max-w-md mx-auto flex flex-col overflow-hidden shadow-2xl h-full max-h-[90vh]">
-            <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50 shrink-0">
-              <div>
-                <h3 className="font-bold text-xl text-gray-800">{selectedReport.name}</h3>
-                <p className="text-sm text-gray-500 font-medium">{selectedReport.empId} • {selectedReport.category}</p>
+      {selectedReport && mounted && createPortal(
+        <div 
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4 pt-safe pb-safe animate-fade-in"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectedReport(null);
+          }}
+        >
+          <div className="bg-white rounded-3xl w-full max-w-md mx-auto flex flex-col overflow-hidden shadow-2xl max-h-[85vh] my-auto">
+            <div className="p-4 sm:p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50 shrink-0 sticky top-0 z-10 rounded-t-3xl">
+              <div className="pr-2 overflow-hidden">
+                <h3 className="font-bold text-lg sm:text-xl text-gray-800 leading-tight truncate">{selectedReport.name}</h3>
+                <p className="text-xs sm:text-sm text-gray-500 font-medium mt-0.5">{selectedReport.empId} • {selectedReport.category}</p>
               </div>
-              <button onClick={() => setSelectedReport(null)} className="p-2 bg-white text-gray-500 rounded-full hover:bg-gray-200 shadow-sm">
-                <X size={20} />
+              <button 
+                onClick={() => setSelectedReport(null)} 
+                className="w-10 h-10 bg-white text-gray-700 hover:text-black rounded-full flex items-center justify-center shadow-md border border-gray-200 active:scale-90 transition-all shrink-0 ml-2"
+                aria-label="Close report modal"
+              >
+                <X size={20} className="stroke-[2.5]" />
               </button>
             </div>
             
@@ -440,7 +452,8 @@ export default function ReportsTab() {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
