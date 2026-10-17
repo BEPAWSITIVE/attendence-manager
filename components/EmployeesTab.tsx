@@ -185,10 +185,8 @@ export default function EmployeesTab({
       } else if (char === ',' && !inQuotes) {
         row.push(currentVal.trim());
         currentVal = '';
-      } else if ((char === '' || char === '
-') && !inQuotes) {
-        if (char === '' && nextChar === '
-') {
+      } else if ((char === '\r' || char === '\n') && !inQuotes) {
+        if (char === '\r' && nextChar === '\n') {
           i++;
         }
         row.push(currentVal.trim());
