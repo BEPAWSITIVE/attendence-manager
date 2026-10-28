@@ -63,6 +63,9 @@ export default function SettingsTab() {
   const [searchQuery, setSearchQuery] = useState('');
   const [copied, setCopied] = useState(false);
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [isResetting, setIsResetting] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
 
   const loadLogs = () => {
     setLogs(appLogger.getLogs());
@@ -206,6 +209,54 @@ export default function SettingsTab() {
     if (confirm("Are you sure you want to clear all system logs?")) {
       appLogger.clear();
       setLogs([]);
+    }
+  };
+
+  const handleEraseAllData = async () => {
+    if (confirmText.trim().toUpperCase() !== 'DELETE') {
+      alert('Please type DELETE to confirm data erasure.');
+      return;
+    }
+
+    if (!navigator.onLine) {
+      alert('You must be online to clear cloud data from Supabase.');
+      return;
+    }
+
+    setIsResetting(true);
+    try {
+      // 1. Delete all attendance logs from Supabase
+      const { error: attErr } = await supabase.from('attendance').delete().neq('recordId', '00000000-0000-0000-0000-000000000000');
+      if (attErr) throw attErr;
+
+      // 2. Delete all parcels from Supabase
+      const { error: parErr } = await supabase.from('parcels').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      if (parErr) throw parErr;
+
+      // 3. Delete all employee / visitor profiles from Supabase
+      const { error: empErr } = await supabase.from('employees').delete().neq('empId', '___');
+      if (empErr) throw empErr;
+
+      // 4. Clear local IndexedDB queues
+      await localdb.syncQueue.clear();
+      await localdb.employeeQueue.clear();
+      await localdb.parcelQueue.clear();
+
+      // 5. Clear cached data and system logs in localStorage
+      localStorage.removeItem('cached_logs');
+      localStorage.removeItem('cached_employees');
+      localStorage.removeItem('cached_parcels');
+      appLogger.clear();
+
+      appLogger.info('System', 'All test data successfully purged by administrator.');
+      alert('All test data has been successfully erased! Your attendance logs, profiles, parcels, and local cache have been cleaned.');
+      setShowResetModal(false);
+      window.location.reload();
+    } catch (err: any) {
+      console.error('Reset failed:', err);
+      alert('Failed to erase data: ' + (err.message || String(err)));
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -841,6 +892,101 @@ export default function SettingsTab() {
           </div>
         )}
       </div>
+
+      {/* ======================================================== */}
+      {/* 🗑️ DATA CLEANUP & RESET (ERASE ALL TEST DATA)            */}
+      {/* ======================================================== */}
+      <div className="bg-red-50/50 border border-red-200 rounded-2xl p-5 shadow-xs space-y-3">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="p-2.5 bg-red-100 text-red-600 rounded-xl">
+              <Trash2 size={20} />
+            </div>
+            <div>
+              <h3 className="font-bold text-red-950 text-sm">Data Cleanup & Reset</h3>
+              <p className="text-xs text-red-700/80 font-medium">Erase all previous test data before live rollout</p>
+            </div>
+          </div>
+        </div>
+
+        <p className="text-xs text-red-800 leading-relaxed">
+          Wipe all test attendance records, registered profiles (Staff, Visitors, Vehicles), and parcels from cloud database and device cache. Admin credentials are safely preserved.
+        </p>
+
+        <button
+          type="button"
+          onClick={() => { setConfirmText(''); setShowResetModal(true); }}
+          className="w-full bg-white hover:bg-red-50 text-red-600 border border-red-300 font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center transition-all shadow-xs active:scale-95"
+        >
+          <Trash2 size={15} className="mr-1.5 text-red-500" />
+          Erase All Test Data & Logs
+        </button>
+      </div>
+
+      {/* Confirmation Modal */}
+      {showResetModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="w-12 h-12 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center mx-auto">
+              <AlertTriangle size={26} />
+            </div>
+
+            <div className="text-center">
+              <h3 className="text-lg font-extrabold text-gray-900">Erase All Previous Data?</h3>
+              <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                This action is <b>permanent</b> and cannot be undone. It will delete:
+              </p>
+              <ul className="text-[11px] text-gray-600 text-left bg-gray-50 p-3 rounded-xl mt-3 space-y-1 font-medium border border-gray-100">
+                <li>• All attendance check-in & check-out logs</li>
+                <li>• All registered profiles (Staff, Vehicles, Visitors)</li>
+                <li>• All parcel records</li>
+                <li>• All pending offline sync queues & cache</li>
+              </ul>
+              <p className="text-[10px] text-emerald-600 font-bold mt-2">
+                ✓ Your admin account will NOT be affected.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">
+                Type <b>DELETE</b> to confirm:
+              </label>
+              <input
+                type="text"
+                placeholder="DELETE"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                className="w-full text-center tracking-widest font-mono font-bold text-sm bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-red-600 focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 uppercase"
+              />
+            </div>
+
+            <div className="flex space-x-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowResetModal(false)}
+                disabled={isResetting}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl font-bold text-xs transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleEraseAllData}
+                disabled={confirmText.trim().toUpperCase() !== 'DELETE' || isResetting}
+                className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white py-2.5 rounded-xl font-bold text-xs shadow-md transition-all flex items-center justify-center"
+              >
+                {isResetting ? (
+                  <>
+                    <RefreshCw size={14} className="animate-spin mr-1.5" /> Erasing...
+                  </>
+                ) : (
+                  'Confirm Erase'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer Info */}
       <div className="text-center pt-2">
