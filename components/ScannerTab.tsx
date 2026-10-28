@@ -3,7 +3,7 @@ import { useEffect, useState, useRef } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { supabase, AttendanceRecord, Employee } from "@/lib/supabase";
 import { localdb } from "@/lib/localdb";
-import { CheckCircle2, AlertCircle, X, Truck, Package, Search, ChevronRight, Loader2, Sparkles, Camera } from "lucide-react";
+import { CheckCircle2, AlertCircle, X, Truck, Package, Search, ChevronRight, Loader2, Sparkles, Camera, Flashlight, FlashlightOff } from "lucide-react";
 
 const playSuccessSound = () => {
   try {
@@ -36,6 +36,47 @@ const playSuccessSound = () => {
 export default function ScannerTab() {
   const [scanResult, setScanResult] = useState<{ success: boolean; msg: string; isVehicle?: boolean } | null>(null);
   const [isScanning, setIsScanning] = useState(false);
+  const [isTorchOn, setIsTorchOn] = useState(false);
+
+  const toggleTorch = async () => {
+    const nextState = !isTorchOn;
+    let applied = false;
+
+    // Method 1: Via html5-qrcode applyVideoConstraints
+    if (scannerRef.current) {
+      try {
+        await (scannerRef.current as any).applyVideoConstraints({
+          advanced: [{ torch: nextState }]
+        });
+        applied = true;
+      } catch (err1) {
+        console.warn("html5-qrcode applyVideoConstraints torch failed:", err1);
+      }
+    }
+
+    // Method 2: Direct media track constraints fallback
+    if (!applied) {
+      try {
+        const video = document.querySelector('#reader video') as HTMLVideoElement;
+        const stream = video?.srcObject as MediaStream;
+        const track = stream?.getVideoTracks()?.[0];
+        if (track) {
+          await track.applyConstraints({
+            advanced: [{ torch: nextState } as any]
+          });
+          applied = true;
+        }
+      } catch (err2) {
+        console.warn("track.applyConstraints torch failed:", err2);
+      }
+    }
+
+    if (applied) {
+      setIsTorchOn(nextState);
+    } else {
+      alert("Flashlight is not supported or unavailable on this camera.");
+    }
+  };
   const [manualModalOpen, setManualModalOpen] = useState(false);
   const [searchPhone, setSearchPhone] = useState("");
   const [searchResults, setSearchResults] = useState<Employee[]>([]);
@@ -102,6 +143,15 @@ export default function ScannerTab() {
   const stopScanner = async () => {
     if (scannerRef.current && isScanning) {
       try {
+        if (isTorchOn) {
+          try {
+            const video = document.querySelector('#reader video') as HTMLVideoElement;
+            const stream = video?.srcObject as MediaStream;
+            const track = stream?.getVideoTracks()?.[0];
+            await track?.applyConstraints({ advanced: [{ torch: false } as any] });
+          } catch (e) {}
+          setIsTorchOn(false);
+        }
         await scannerRef.current.stop();
         scannerRef.current.clear();
         scannerRef.current = null;
@@ -580,9 +630,34 @@ export default function ScannerTab() {
             <div className="absolute bottom-0 right-0 w-12 h-12 border-b-[4px] border-r-[4px] border-[#38bdf8] rounded-br-3xl"></div>
           </div>
         </div>
-      
-          
-</div>
+
+        {/* Flashlight / Torch Toggle Button */}
+        {isScanning && (
+          <button
+            type="button"
+            onClick={toggleTorch}
+            className={`absolute top-4 right-4 z-20 px-3 py-2 rounded-2xl shadow-lg backdrop-blur-md transition-all active:scale-95 flex items-center space-x-1.5 cursor-pointer ${
+              isTorchOn 
+                ? 'bg-amber-400 text-amber-950 shadow-amber-400/50 ring-2 ring-amber-300' 
+                : 'bg-black/50 hover:bg-black/70 text-white border border-white/20'
+            }`}
+            title={isTorchOn ? "Turn Flashlight OFF" : "Turn Flashlight ON"}
+            aria-label={isTorchOn ? "Turn Flashlight OFF" : "Turn Flashlight ON"}
+          >
+            {isTorchOn ? (
+              <>
+                <Flashlight size={17} className="fill-amber-950" />
+                <span className="text-[11px] font-extrabold tracking-wide">FLASH ON</span>
+              </>
+            ) : (
+              <>
+                <FlashlightOff size={17} />
+                <span className="text-[11px] font-bold tracking-wide">Flash</span>
+              </>
+            )}
+          </button>
+        )}
+      </div>
 
       <button 
         onClick={() => { setManualModalOpen(true); if (scannerRef.current) { try { scannerRef.current.pause(); } catch(e) {} } }}
