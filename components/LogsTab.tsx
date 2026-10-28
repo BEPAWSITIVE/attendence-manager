@@ -4,7 +4,7 @@ import { supabase, AttendanceRecord } from "@/lib/supabase";
 import { localdb } from "@/lib/localdb";
 import { Clock, CheckCircle2, UserPlus, Truck, Shield, Package } from "lucide-react";
 
-export default function LogsTab() {
+export default function LogsTab({ embedded }: { embedded?: boolean } = {}) {
   const [logs, setLogs] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -72,8 +72,8 @@ export default function LogsTab() {
   };
 
   return (
-    <div className="p-4 pb-20 max-w-md mx-auto space-y-4">
-      <h2 className="text-2xl font-bold text-gray-800 mb-2">Activity Logs</h2>
+    <div className={embedded ? "space-y-4" : "p-4 pb-20 max-w-md mx-auto space-y-4"}>
+      {!embedded && <h2 className="text-2xl font-bold text-gray-800 mb-2">Activity Logs</h2>}
 
       {loading ? (
         <div className="text-center py-10 text-gray-400">Loading logs...</div>

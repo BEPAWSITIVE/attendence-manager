@@ -13,6 +13,7 @@ import { FileBarChart2 } from 'lucide-react';
 import { Package } from 'lucide-react';
 import Image from 'next/image';
 import { supabase } from "@/lib/supabase";
+import { initGlobalLogger } from "@/lib/logger";
 
 export default function Home() {
   const [role, setRole] = useState<"admin" | "guard">(() => {
@@ -105,6 +106,7 @@ export default function Home() {
   };
 
   useEffect(() => {
+    initGlobalLogger();
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
       if (session) {
