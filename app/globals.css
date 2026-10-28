@@ -10,4 +10,17 @@
 body {
   background-color: var(--background);
   color: var(--foreground);
+  min-height: 100vh;
+  min-height: 100dvh;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: contain;
+}
+
+/* Safe area padding utilities for modern Android 13/14/15 gesture navigation bars & notches */
+.pb-safe {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0.75rem));
+}
+
+.pt-safe {
+  padding-top: max(0.75rem, env(safe-area-inset-top, 0.75rem));
 }

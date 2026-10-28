@@ -181,7 +181,20 @@ export default function SettingsTab() {
   const handleCopyLogs = async () => {
     try {
       const report = appLogger.exportReport();
-      await navigator.clipboard.writeText(report);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(report);
+      } else {
+        // Fallback for Android WebViews or restricted clipboard contexts
+        const textarea = document.createElement('textarea');
+        textarea.value = report;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (e) {

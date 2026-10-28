@@ -23,10 +23,13 @@ const playSuccessSound = () => {
     osc.connect(gainNode);
     gainNode.connect(ctx.destination);
     
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
     osc.start();
     osc.stop(ctx.currentTime + 0.5);
   } catch (err) {
-    console.error("Audio not supported", err);
+    // Audio context not allowed or supported
   }
 };
 
@@ -57,15 +60,42 @@ export default function ScannerTab() {
       const html5QrCode = new Html5Qrcode("reader");
       scannerRef.current = html5QrCode;
       
-      await html5QrCode.start(
-        { facingMode: "environment" },
-        { fps: 10 }, // removed qrbox to rely on full video feed
-        onScanSuccess,
-        undefined
-      );
+      try {
+        await html5QrCode.start(
+          { facingMode: "environment" },
+          { fps: 10 },
+          onScanSuccess,
+          undefined
+        );
+      } catch (firstErr: any) {
+        console.warn("Direct facingMode environment failed, checking camera list...", firstErr);
+        // Fallback for modern Android multi-camera devices
+        const cameras = await Html5Qrcode.getCameras();
+        if (cameras && cameras.length > 0) {
+          const backCam = cameras.find(c => 
+            c.label.toLowerCase().includes('back') || 
+            c.label.toLowerCase().includes('rear') || 
+            c.label.toLowerCase().includes('environment') ||
+            c.label.toLowerCase().includes('0')
+          ) || cameras[cameras.length - 1];
+
+          await html5QrCode.start(
+            backCam.id,
+            { fps: 10 },
+            onScanSuccess,
+            undefined
+          );
+        } else {
+          throw firstErr;
+        }
+      }
       setIsScanning(true);
-    } catch (err) {
-      console.error("Failed to start scanner", err);
+    } catch (err: any) {
+      console.error("Failed to start scanner on device:", err);
+      setScanResult({ 
+        success: false, 
+        msg: "Camera access failed. Please ensure camera permission is allowed in your browser settings." 
+      });
     }
   };
 
