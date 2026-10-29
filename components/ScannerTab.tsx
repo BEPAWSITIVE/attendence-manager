@@ -3,7 +3,7 @@ import { useEffect, useState, useRef } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { supabase, AttendanceRecord, Employee } from "@/lib/supabase";
 import { localdb } from "@/lib/localdb";
-import { CheckCircle2, AlertCircle, X, Truck, Package, Search, ChevronRight, Loader2, Sparkles, Camera, Flashlight, FlashlightOff, WifiOff } from "lucide-react";
+import { CheckCircle2, AlertCircle, X, Truck, Package, Search, ChevronRight, Loader2, Sparkles, Camera, Flashlight, FlashlightOff, WifiOff, ClipboardList, RefreshCw, Clock } from "lucide-react";
 import { syncOfflineDataBackup, updateCachedEmployee, updateCachedAttendance } from "@/lib/offlineBackup";
 
 const getCachedProfile = (id: string): Employee | null => {
@@ -75,6 +75,13 @@ export default function ScannerTab() {
   const [isOffline, setIsOffline] = useState(false);
   const [cachedCount, setCachedCount] = useState(0);
 
+  // Today's Attendance Modal States
+  const [showTodayModal, setShowTodayModal] = useState(false);
+  const [todayRecords, setTodayRecords] = useState<AttendanceRecord[]>([]);
+  const [todayFilter, setTodayFilter] = useState<'all' | 'in' | 'out'>('all');
+  const [todaySearch, setTodaySearch] = useState("");
+  const [isLoadingToday, setIsLoadingToday] = useState(false);
+
   const updateOfflineState = () => {
     if (typeof window === 'undefined') return;
     setIsOffline(!navigator.onLine);
@@ -83,6 +90,69 @@ export default function ScannerTab() {
       const list = raw ? JSON.parse(raw) : [];
       setCachedCount(Array.isArray(list) ? list.length : 0);
     } catch(e) {}
+  };
+
+  const fetchTodayRecords = async () => {
+    setIsLoadingToday(true);
+    const todayStr = new Date().toISOString().split('T')[0];
+    let list: AttendanceRecord[] = [];
+
+    if (navigator.onLine) {
+      try {
+        const { data, error } = await supabase
+          .from('attendance')
+          .select('*')
+          .eq('date', todayStr)
+          .order('inTimestamp', { ascending: false });
+        if (!error && data) list = data;
+      } catch (e) {
+        console.warn("Could not fetch today records online:", e);
+      }
+    }
+
+    // Merge with cached_logs
+    try {
+      const raw = localStorage.getItem('cached_logs');
+      if (raw) {
+        const allLogs: AttendanceRecord[] = JSON.parse(raw);
+        const cachedToday = allLogs.filter(r => r.date === todayStr);
+        const map = new Map<string, AttendanceRecord>();
+        for (const r of cachedToday) map.set(r.recordId, r);
+        for (const r of list) map.set(r.recordId, r);
+        list = Array.from(map.values());
+      }
+    } catch (e) {}
+
+    // Merge with offline syncQueue
+    try {
+      const queue = await localdb.syncQueue.where({ date: todayStr }).toArray();
+      const map = new Map<string, AttendanceRecord>();
+      for (const r of list) map.set(r.recordId, r);
+      for (const r of queue) map.set(r.recordId, r);
+      list = Array.from(map.values());
+    } catch (e) {}
+
+    list.sort((a, b) => (b.inTimestamp || 0) - (a.inTimestamp || 0));
+    setTodayRecords(list);
+    setIsLoadingToday(false);
+
+    window.dispatchEvent(new CustomEvent('ams_today_count_changed', { detail: { count: list.length } }));
+    return list;
+  };
+
+  const handleOpenTodayModal = async () => {
+    if (scannerRef.current) {
+      try { scannerRef.current.pause(); } catch(e) {}
+    }
+    setShowTodayModal(true);
+    await fetchTodayRecords();
+  };
+
+  const handleCloseTodayModal = () => {
+    setShowTodayModal(false);
+    if (scannerRef.current) {
+      try { scannerRef.current.resume(); } catch(e) {}
+    }
   };
 
   useEffect(() => {
@@ -94,10 +164,13 @@ export default function ScannerTab() {
       window.addEventListener('online', updateOfflineState);
       window.addEventListener('offline', updateOfflineState);
       window.addEventListener('ams_offline_backup_completed', updateOfflineState);
+      window.addEventListener('ams_open_today_modal', handleOpenTodayModal);
+      fetchTodayRecords();
       return () => {
         window.removeEventListener('online', updateOfflineState);
         window.removeEventListener('offline', updateOfflineState);
         window.removeEventListener('ams_offline_backup_completed', updateOfflineState);
+        window.removeEventListener('ams_open_today_modal', handleOpenTodayModal);
       };
     }
   }, []);
@@ -359,6 +432,7 @@ export default function ScannerTab() {
         if (scannerRef.current) {
           try { scannerRef.current.resume(); } catch(e) {}
         }
+        fetchTodayRecords();
       }, 2500);
 
     } catch (err) {
@@ -696,8 +770,25 @@ export default function ScannerTab() {
       </div>
       <div className="fixed bottom-40 -left-4 w-20 h-12 bg-blue-100 rounded-full opacity-60 mix-blend-multiply blur-sm z-0"></div>
 
+      {/* Top Header Bar for Guard Scanner */}
+      <div className="flex items-center justify-between z-10 mb-2 mt-2">
+        <div className="flex items-center space-x-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span className="text-xs font-extrabold text-gray-700 uppercase tracking-wider">Gate Scanner</span>
+        </div>
+        <button
+          type="button"
+          onClick={handleOpenTodayModal}
+          className="flex items-center space-x-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 px-3 py-1.5 rounded-xl font-bold text-xs shadow-2xs active:scale-95 transition-all"
+          title="View Today's Attendance List"
+        >
+          <ClipboardList size={14} className="text-blue-600" />
+          <span>Today's List ({todayRecords.length})</span>
+        </button>
+      </div>
+
       {/* Embedded Square Camera Viewport */}
-      <div className="relative w-full aspect-square bg-gray-100 rounded-[32px] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)] border-[6px] border-[#EAF3FF] z-10 mb-8 mt-4">
+      <div className="relative w-full aspect-square bg-gray-100 rounded-[32px] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)] border-[6px] border-[#EAF3FF] z-10 mb-8">
         
         <div id="reader" className="w-full h-full [&>video]:object-cover [&>video]:w-full [&>video]:h-full"></div>
         
@@ -941,6 +1032,204 @@ export default function ScannerTab() {
           </div>
         </div>
       )}
+
+      {/* Today Attendance Popup Modal for Guards */}
+      {showTodayModal && (() => {
+        const filteredToday = todayRecords.filter(r => {
+          if (todayFilter === 'in' && r.status !== 'IN') return false;
+          if (todayFilter === 'out' && r.status !== 'OUT') return false;
+          if (todaySearch.trim()) {
+            const q = todaySearch.toLowerCase().trim();
+            const nameMatch = (r.empName || '').toLowerCase().includes(q);
+            const idMatch = (r.empId || '').toLowerCase().includes(q);
+            const deptMatch = (r.department || '').toLowerCase().includes(q);
+            const driverMatch = (r.driver_name || '').toLowerCase().includes(q);
+            return nameMatch || idMatch || deptMatch || driverMatch;
+          }
+          return true;
+        });
+
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 animate-fade-in">
+            <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[88vh]">
+              {/* Header */}
+              <div className="p-4 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50 flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md">
+                    <ClipboardList size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-gray-800 text-base">Today's Attendance</h3>
+                    <p className="text-[11px] text-gray-500 font-medium">
+                      {new Date().toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCloseTodayModal}
+                  className="p-2 text-gray-400 hover:text-gray-700 rounded-full hover:bg-white transition-colors"
+                  aria-label="Close"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Quick Summary Counts */}
+              <div className="grid grid-cols-3 gap-2 p-3 bg-gray-50/80 border-b border-gray-100 text-center">
+                <button 
+                  type="button"
+                  onClick={() => setTodayFilter('all')}
+                  className={`p-2 rounded-xl border transition-all ${
+                    todayFilter === 'all' 
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs font-bold' 
+                      : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+                  }`}
+                >
+                  <p className="text-[10px] opacity-80 uppercase tracking-wider font-semibold">Total Scans</p>
+                  <p className="text-base font-extrabold mt-0.5">{todayRecords.length}</p>
+                </button>
+
+                <button 
+                  type="button"
+                  onClick={() => setTodayFilter('in')}
+                  className={`p-2 rounded-xl border transition-all ${
+                    todayFilter === 'in' 
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' 
+                      : 'bg-white text-emerald-800 border-gray-200 hover:bg-emerald-50'
+                  }`}
+                >
+                  <p className="text-[10px] opacity-80 uppercase tracking-wider font-semibold">Currently IN</p>
+                  <p className="text-base font-extrabold mt-0.5 text-emerald-600">{todayRecords.filter(r => r.status === 'IN').length}</p>
+                </button>
+
+                <button 
+                  type="button"
+                  onClick={() => setTodayFilter('out')}
+                  className={`p-2 rounded-xl border transition-all ${
+                    todayFilter === 'out' 
+                      ? 'bg-gray-700 text-white border-gray-700 shadow-xs font-bold' 
+                      : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+                  }`}
+                >
+                  <p className="text-[10px] opacity-80 uppercase tracking-wider font-semibold">Checked OUT</p>
+                  <p className="text-base font-extrabold mt-0.5">{todayRecords.filter(r => r.status === 'OUT').length}</p>
+                </button>
+              </div>
+
+              {/* Search Filter */}
+              <div className="p-3 border-b border-gray-100">
+                <div className="relative">
+                  <Search size={15} className="absolute left-3 top-2.5 text-gray-400" />
+                  <input
+                    type="text"
+                    value={todaySearch}
+                    onChange={(e) => setTodaySearch(e.target.value)}
+                    placeholder="Search by name, ID, vehicle, driver..."
+                    className="w-full bg-gray-50 border border-gray-200 pl-8 pr-8 py-2 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                  />
+                  {todaySearch && (
+                    <button
+                      type="button"
+                      onClick={() => setTodaySearch("")}
+                      className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Records List */}
+              <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                {isLoadingToday ? (
+                  <div className="py-12 text-center text-gray-400 space-y-2">
+                    <Loader2 size={24} className="animate-spin mx-auto text-blue-600" />
+                    <p className="text-xs">Loading today's attendance...</p>
+                  </div>
+                ) : filteredToday.length === 0 ? (
+                  <div className="py-10 text-center text-gray-400 space-y-1">
+                    <ClipboardList size={30} className="mx-auto text-gray-300 mb-1" />
+                    <p className="font-bold text-gray-700 text-xs">No records found</p>
+                    <p className="text-[11px] text-gray-400">
+                      {todayRecords.length === 0 
+                        ? "No attendance scans recorded yet today." 
+                        : "No records match your search or filter."}
+                    </p>
+                  </div>
+                ) : (
+                  filteredToday.map((r) => (
+                    <div
+                      key={r.recordId}
+                      className="bg-white border border-gray-100 hover:border-blue-200 p-3 rounded-2xl shadow-2xs transition-all flex items-center justify-between"
+                    >
+                      <div className="flex items-center space-x-3 min-w-0 flex-1 mr-2">
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${
+                          r.category === 'Vehicle' ? 'bg-amber-100 text-amber-700' :
+                          r.category === 'Volunteer' ? 'bg-purple-100 text-purple-700' :
+                          r.category === 'Visitor' ? 'bg-emerald-100 text-emerald-700' :
+                          'bg-blue-100 text-blue-700'
+                        }`}>
+                          {r.empName?.charAt(0)?.toUpperCase() || '?'}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center space-x-1.5">
+                            <p className="font-bold text-gray-900 text-xs truncate">{r.empName}</p>
+                            <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                              r.category === 'Vehicle' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                              r.category === 'Volunteer' ? 'bg-purple-50 text-purple-700 border border-purple-200' :
+                              r.category === 'Visitor' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                              'bg-blue-50 text-blue-700 border border-blue-200'
+                            }`}>
+                              {r.category || 'Staff'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-gray-500 font-mono truncate mt-0.5">
+                            {r.empId} • {r.department}
+                            {r.driver_name && ` • Driver: ${r.driver_name}`}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <div className="flex items-center justify-end space-x-1">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                            r.status === 'IN' 
+                              ? 'bg-emerald-100 text-emerald-800' 
+                              : 'bg-gray-100 text-gray-700'
+                          }`}>
+                            {r.status === 'IN' ? '● IN' : 'OUT'}
+                          </span>
+                        </div>
+                        <div className="text-[10px] font-mono text-gray-500 mt-1 font-semibold">
+                          <span>In: {r.inTime}</span>
+                          {r.outTime && <span className="ml-1 text-gray-700">• Out: {r.outTime}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="p-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+                <span className="text-[11px] text-gray-500 font-medium">
+                  Showing {filteredToday.length} of {todayRecords.length} records
+                </span>
+                <button
+                  type="button"
+                  onClick={fetchTodayRecords}
+                  className="text-xs text-blue-600 hover:text-blue-800 font-bold flex items-center py-1 px-2 rounded-lg hover:bg-blue-50 transition-colors"
+                >
+                  <RefreshCw size={12} className={`mr-1 ${isLoadingToday ? 'animate-spin' : ''}`} />
+                  Refresh
+                </button>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Parcel Action Modal */}
       {parcelModal && (

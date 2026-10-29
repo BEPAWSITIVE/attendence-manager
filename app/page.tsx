@@ -55,6 +55,19 @@ export default function Home() {
   const [offlineStats, setOfflineStats] = useState<OfflineBackupStats>(() => getOfflineBackupStats());
   const [isOffline, setIsOffline] = useState(false);
   const [isSyncingBackup, setIsSyncingBackup] = useState(false);
+  const [todayCount, setTodayCount] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('cached_logs');
+        if (raw) {
+          const todayStr = new Date().toISOString().split('T')[0];
+          const logs = JSON.parse(raw);
+          return logs.filter((l: any) => l.date === todayStr).length;
+        }
+      } catch(e) {}
+    }
+    return 0;
+  });
 
   const fetchRole = async (userId: string) => {
     try {
@@ -181,6 +194,13 @@ export default function Home() {
     };
     window.addEventListener('ams_offline_backup_completed', handleBackupCompleted);
 
+    const handleCountChanged = (e: any) => {
+      if (e.detail && typeof e.detail.count === 'number') {
+        setTodayCount(e.detail.count);
+      }
+    };
+    window.addEventListener('ams_today_count_changed', handleCountChanged);
+
     const handleAiScan = (e: any) => {
       const data = e.detail;
       if (data.type === 'visitor') {
@@ -207,6 +227,7 @@ export default function Home() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('ams_offline_backup_completed', handleBackupCompleted);
+      window.removeEventListener('ams_today_count_changed', handleCountChanged);
       window.removeEventListener('ai_scan_result', handleAiScan);
     };
   }, []);
@@ -250,6 +271,19 @@ export default function Home() {
         </div>
         
         <div className="flex items-center space-x-2 relative">
+          {/* Today Attendance Button on Guard Scan Header */}
+          {activeTab === 'scanner' && (
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('ams_open_today_modal'))}
+              className="flex items-center space-x-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-2.5 sm:px-3 py-1.5 rounded-xl font-bold text-xs shadow-sm shadow-blue-500/20 active:scale-95 transition-all shrink-0"
+              title="View Today's Attendance List"
+            >
+              <ClipboardList size={14} className="shrink-0" />
+              <span>Today ({todayCount})</span>
+            </button>
+          )}
+
           {isOffline && (
             <div className="flex items-center text-[10px] font-extrabold text-amber-800 bg-amber-100/90 border border-amber-300 px-2 py-1 rounded-full shadow-xs animate-pulse">
               <WifiOff size={11} className="mr-1 text-amber-600 shrink-0" />
