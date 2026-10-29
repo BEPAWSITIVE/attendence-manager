@@ -17,7 +17,8 @@ import {
   Loader2,
   ChevronDown,
   Pencil,
-  Trash2
+  Trash2,
+  Search
 } from "lucide-react";
 import { appLogger } from "@/lib/logger";
 
@@ -53,6 +54,10 @@ export default function EmployeesTab({
   const [groupMembers, setGroupMembers] = useState<string[]>([""]);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+
+  // Search & Category Filter States
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("All");
 
   // Edit Employee States
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
@@ -171,6 +176,33 @@ export default function EmployeesTab({
     setGroupMembers([""]);
     setShowForm(true);
   };
+
+  const filteredEmployees = employees.filter(emp => {
+    // 1. Category Filter
+    if (selectedCategoryFilter !== "All") {
+      const empCat = emp.category || "Staff";
+      if (empCat.toLowerCase() !== selectedCategoryFilter.toLowerCase()) {
+        return false;
+      }
+    }
+
+    // 2. Search Query Filter
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    const cleanQ = q.replace(/\D/g, "");
+
+    const nameMatch = (emp.name || "").toLowerCase().includes(q);
+    const idMatch = (emp.empId || "").toLowerCase().includes(q);
+    const deptMatch = (emp.department || "").toLowerCase().includes(q);
+    const phoneMatch = cleanQ.length > 2 
+      ? (emp.phone || "").replace(/\D/g, "").includes(cleanQ)
+      : (emp.phone || "").toLowerCase().includes(q);
+    const plateMatch = (emp.vehicle_plate || "").toLowerCase().includes(q);
+    const groupMatch = (emp.group_members || "").toLowerCase().includes(q);
+    const catMatch = (emp.category || "Staff").toLowerCase().includes(q);
+
+    return nameMatch || idMatch || deptMatch || phoneMatch || plateMatch || groupMatch || catMatch;
+  });
 
   const handleOpenEditModal = (emp: Employee) => {
     setEditingEmployee(emp);
@@ -1083,6 +1115,69 @@ export default function EmployeesTab({
         </div>
       )}
       
+      {/* Search & Category Filter Bar */}
+      {!loading && employees.length > 0 && (
+        <div className="space-y-2 mb-1">
+          <div className="flex items-center space-x-2">
+            <div className="relative flex-grow">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search size={16} className="text-gray-400" />
+              </div>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search staff, vehicle, ID, phone..."
+                className="w-full bg-white border border-gray-200 pl-9 pr-8 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm shadow-xs font-medium"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-gray-400 hover:text-gray-600"
+                  aria-label="Clear search"
+                >
+                  <X size={15} />
+                </button>
+              )}
+            </div>
+
+            <div className="relative w-36 shrink-0">
+              <select 
+                value={selectedCategoryFilter}
+                onChange={(e) => setSelectedCategoryFilter(e.target.value)}
+                className="appearance-none w-full bg-white text-gray-700 font-bold py-2.5 pl-3 pr-8 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-blue-500 text-xs shadow-xs cursor-pointer"
+              >
+                <option value="All">All ({employees.length})</option>
+                <option value="Staff">👤 Staff ({employees.filter(e => (e.category || 'Staff') === 'Staff').length})</option>
+                <option value="Volunteer">🤝 Volunteer ({employees.filter(e => e.category === 'Volunteer').length})</option>
+                <option value="Vehicle">🚚 Vehicle ({employees.filter(e => e.category === 'Vehicle').length})</option>
+                <option value="Visitor">🏷️ Visitor ({employees.filter(e => e.category === 'Visitor').length})</option>
+              </select>
+              <ChevronDown size={14} className="absolute right-2.5 top-3.5 text-gray-500 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* Filter Status Badge / Reset */}
+          {(searchQuery.trim() !== "" || selectedCategoryFilter !== "All") && (
+            <div className="flex items-center justify-between text-xs px-1 text-gray-500 animate-fade-in">
+              <span>
+                Found <b className="text-gray-800">{filteredEmployees.length}</b> {filteredEmployees.length === 1 ? 'result' : 'results'}
+                {selectedCategoryFilter !== 'All' ? ` in ${selectedCategoryFilter}` : ''}
+                {searchQuery ? ` for "${searchQuery}"` : ''}
+              </span>
+              <button
+                type="button"
+                onClick={() => { setSearchQuery(""); setSelectedCategoryFilter("All"); }}
+                className="text-blue-600 font-bold hover:underline"
+              >
+                Reset
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <div className="text-center py-10 text-gray-400">Loading registry...</div>
       ) : employees.length === 0 ? (
@@ -1105,9 +1200,24 @@ export default function EmployeesTab({
             </div>
           )}
         </div>
+      ) : filteredEmployees.length === 0 ? (
+        <div className="text-center py-10 bg-white rounded-2xl border border-dashed border-gray-200 p-6 space-y-2">
+          <Search size={26} className="mx-auto text-gray-300 mb-1" />
+          <p className="font-bold text-gray-700 text-sm">No matching records found</p>
+          <p className="text-xs text-gray-500">
+            No profile matches your search query {searchQuery ? `"${searchQuery}"` : ''} {selectedCategoryFilter !== 'All' ? `in category ${selectedCategoryFilter}` : ''}.
+          </p>
+          <button
+            type="button"
+            onClick={() => { setSearchQuery(""); setSelectedCategoryFilter("All"); }}
+            className="text-xs text-blue-700 bg-blue-50 px-3 py-1.5 rounded-lg font-bold hover:bg-blue-100 transition-colors mt-2"
+          >
+            Clear Filters
+          </button>
+        </div>
       ) : (
         <div className="space-y-3">
-          {employees.map(emp => (
+          {filteredEmployees.map(emp => (
             <div 
               key={emp.empId} 
               onClick={() => setSelectedEmployee(emp)}
