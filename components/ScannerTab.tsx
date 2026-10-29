@@ -770,25 +770,8 @@ export default function ScannerTab() {
       </div>
       <div className="fixed bottom-40 -left-4 w-20 h-12 bg-blue-100 rounded-full opacity-60 mix-blend-multiply blur-sm z-0"></div>
 
-      {/* Top Header Bar for Guard Scanner */}
-      <div className="flex items-center justify-between z-10 mb-2 mt-2">
-        <div className="flex items-center space-x-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span className="text-xs font-extrabold text-gray-700 uppercase tracking-wider">Gate Scanner</span>
-        </div>
-        <button
-          type="button"
-          onClick={handleOpenTodayModal}
-          className="flex items-center space-x-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 px-3 py-1.5 rounded-xl font-bold text-xs shadow-2xs active:scale-95 transition-all"
-          title="View Today's Attendance List"
-        >
-          <ClipboardList size={14} className="text-blue-600" />
-          <span>Today's List ({todayRecords.length})</span>
-        </button>
-      </div>
-
       {/* Embedded Square Camera Viewport */}
-      <div className="relative w-full aspect-square bg-gray-100 rounded-[32px] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)] border-[6px] border-[#EAF3FF] z-10 mb-8">
+      <div className="relative w-full aspect-square bg-gray-100 rounded-[32px] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)] border-[6px] border-[#EAF3FF] z-10 mb-8 mt-4">
         
         <div id="reader" className="w-full h-full [&>video]:object-cover [&>video]:w-full [&>video]:h-full"></div>
         
