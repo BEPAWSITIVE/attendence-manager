@@ -3,7 +3,42 @@ import { useEffect, useState, useRef } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { supabase, AttendanceRecord, Employee } from "@/lib/supabase";
 import { localdb } from "@/lib/localdb";
-import { CheckCircle2, AlertCircle, X, Truck, Package, Search, ChevronRight, Loader2, Sparkles, Camera, Flashlight, FlashlightOff } from "lucide-react";
+import { CheckCircle2, AlertCircle, X, Truck, Package, Search, ChevronRight, Loader2, Sparkles, Camera, Flashlight, FlashlightOff, WifiOff } from "lucide-react";
+import { syncOfflineDataBackup, updateCachedEmployee, updateCachedAttendance } from "@/lib/offlineBackup";
+
+const getCachedProfile = (id: string): Employee | null => {
+  try {
+    const cached = localStorage.getItem('cached_employees');
+    if (cached) {
+      const list: Employee[] = JSON.parse(cached);
+      return list.find((e: any) => e.empId === id) || null;
+    }
+  } catch (e) {}
+  return null;
+};
+
+const getCombinedRecords = async (id: string, date: string): Promise<any[]> => {
+  const queue = await localdb.syncQueue.where({ empId: id, date: date }).toArray();
+  let cachedToday: any[] = [];
+  try {
+    const raw = localStorage.getItem('cached_logs');
+    if (raw) {
+      const allLogs = JSON.parse(raw);
+      cachedToday = allLogs.filter((r: any) => r.empId === id && r.date === date);
+    }
+  } catch(e) {}
+  
+  const map = new Map<string, any>();
+  for (const r of cachedToday) {
+    map.set(r.recordId || `${r.empId}_${r.inTimestamp}`, r);
+  }
+  for (const r of queue) {
+    map.set(r.recordId || `${r.empId}_${r.inTimestamp}`, r);
+  }
+  const merged = Array.from(map.values());
+  merged.sort((a, b) => (a.inTimestamp || 0) - (b.inTimestamp || 0));
+  return merged;
+};
 
 const playSuccessSound = () => {
   try {
@@ -37,6 +72,35 @@ export default function ScannerTab() {
   const [scanResult, setScanResult] = useState<{ success: boolean; msg: string; isVehicle?: boolean } | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [isTorchOn, setIsTorchOn] = useState(false);
+  const [isOffline, setIsOffline] = useState(false);
+  const [cachedCount, setCachedCount] = useState(0);
+
+  const updateOfflineState = () => {
+    if (typeof window === 'undefined') return;
+    setIsOffline(!navigator.onLine);
+    try {
+      const raw = localStorage.getItem('cached_employees');
+      const list = raw ? JSON.parse(raw) : [];
+      setCachedCount(Array.isArray(list) ? list.length : 0);
+    } catch(e) {}
+  };
+
+  useEffect(() => {
+    updateOfflineState();
+    if (typeof window !== 'undefined') {
+      if (navigator.onLine) {
+        syncOfflineDataBackup().then(updateOfflineState).catch(console.warn);
+      }
+      window.addEventListener('online', updateOfflineState);
+      window.addEventListener('offline', updateOfflineState);
+      window.addEventListener('ams_offline_backup_completed', updateOfflineState);
+      return () => {
+        window.removeEventListener('online', updateOfflineState);
+        window.removeEventListener('offline', updateOfflineState);
+        window.removeEventListener('ams_offline_backup_completed', updateOfflineState);
+      };
+    }
+  }, []);
 
   const toggleTorch = async () => {
     const nextState = !isTorchOn;
@@ -187,23 +251,34 @@ export default function ScannerTab() {
       let existingRecords: any[] = [];
       
       if (navigator.onLine) {
-        const { data: profile } = await supabase.from('employees').select('*').eq('empId', empId).single();
-        empData = profile;
-        const { data: existing } = await supabase
-          .from('attendance')
-          .select('*')
-          .eq('date', dateStr)
-          .eq('empId', empId)
-          .order('inTimestamp', { ascending: true });
-        if (existing) existingRecords = existing;
-      } else {
-        const cached = localStorage.getItem('cached_employees');
-        if (cached) {
-          const employees = JSON.parse(cached);
-          empData = employees.find((e: any) => e.empId === empId);
+        try {
+          const { data: profile } = await supabase.from('employees').select('*').eq('empId', empId).single();
+          if (profile) {
+            empData = profile;
+            updateCachedEmployee(profile);
+          } else {
+            empData = getCachedProfile(empId);
+          }
+
+          const { data: existing } = await supabase
+            .from('attendance')
+            .select('*')
+            .eq('date', dateStr)
+            .eq('empId', empId)
+            .order('inTimestamp', { ascending: true });
+          
+          const localQueue = await localdb.syncQueue.where({ empId: empId, date: dateStr }).toArray();
+          const combined = [...(existing || []), ...localQueue];
+          combined.sort((a, b) => (a.inTimestamp || 0) - (b.inTimestamp || 0));
+          existingRecords = combined;
+        } catch (netErr) {
+          console.warn("Online scan fetch failed, using offline fallback:", netErr);
+          empData = getCachedProfile(empId);
+          existingRecords = await getCombinedRecords(empId, dateStr);
         }
-        const queue = await localdb.syncQueue.where({ empId: empId, date: dateStr }).toArray();
-        existingRecords = queue;
+      } else {
+        empData = getCachedProfile(empId);
+        existingRecords = await getCombinedRecords(empId, dateStr);
       }
       
       if (!empData) {
@@ -249,6 +324,7 @@ export default function ScannerTab() {
         } else {
           await localdb.syncQueue.put(updatedRecord);
         }
+        updateCachedAttendance(updatedRecord as any);
         
         playSuccessSound();
         setScanResult({ success: true, msg: `${emp.name} Checked OUT at ${timeStr}` + (navigator.onLine ? '' : ' (Offline)') });
@@ -272,6 +348,7 @@ export default function ScannerTab() {
         } else {
           await localdb.syncQueue.put(newRecord);
         }
+        updateCachedAttendance(newRecord as any);
         
         playSuccessSound();
         setScanResult({ success: true, msg: `${emp.name} Checked IN at ${timeStr}` + (navigator.onLine ? '' : ' (Offline)') });
@@ -325,6 +402,7 @@ export default function ScannerTab() {
       } else {
         await localdb.syncQueue.put(newRecord);
       }
+      updateCachedAttendance(newRecord as any);
       playSuccessSound();
       setScanResult({ success: true, isVehicle: true, msg: `Vehicle ${profile.name} Dispatched by ${driverName}` + (navigator.onLine ? '' : ' (Offline)') });
     } else {
@@ -349,6 +427,7 @@ export default function ScannerTab() {
       } else {
         await localdb.syncQueue.put(updatedRecord);
       }
+      updateCachedAttendance(updatedRecord as any);
       playSuccessSound();
       setScanResult({ success: true, isVehicle: true, msg: `Vehicle ${profile.name} Returned. ${consumed} units used.` + (navigator.onLine ? '' : ' (Offline)') });
     }
@@ -588,6 +667,7 @@ export default function ScannerTab() {
     } else {
       await localdb.syncQueue.put(updatedRecord);
     }
+    updateCachedAttendance(updatedRecord as any);
     
     playSuccessSound();
     setScanResult({ success: true, msg: `Parcel picked up by ${pickerName}` + (navigator.onLine ? '' : ' (Offline)') });
@@ -621,6 +701,14 @@ export default function ScannerTab() {
         
         <div id="reader" className="w-full h-full [&>video]:object-cover [&>video]:w-full [&>video]:h-full"></div>
         
+        {/* Offline Ready Badge on Camera View */}
+        {isOffline && (
+          <div className="absolute top-4 left-4 z-20 bg-amber-500/90 text-white text-[10px] font-extrabold px-2.5 py-1 rounded-full shadow-md backdrop-blur-xs flex items-center animate-fade-in">
+            <WifiOff size={11} className="mr-1" />
+            <span>Offline Ready ({cachedCount})</span>
+          </div>
+        )}
+
         {/* Cyan Brackets Overlay */}
         <div className="absolute inset-0 pointer-events-none p-6">
           <div className="w-full h-full relative">

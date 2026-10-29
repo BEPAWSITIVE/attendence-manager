@@ -28,6 +28,7 @@ import {
   Clock,
   Layers
 } from "lucide-react";
+import { syncOfflineDataBackup, getOfflineBackupStats, OfflineBackupStats } from "@/lib/offlineBackup";
 import { localdb } from "@/lib/localdb";
 import { supabase } from "@/lib/supabase";
 import { appLogger, LogEntry } from "@/lib/logger";
@@ -47,6 +48,8 @@ export default function SettingsTab() {
   const [showInstructions, setShowInstructions] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
   const [platform, setPlatform] = useState<'android' | 'ios' | 'desktop'>('android');
+  const [offlineStats, setOfflineStats] = useState<OfflineBackupStats>(() => getOfflineBackupStats());
+  const [isSyncingBackup, setIsSyncingBackup] = useState(false);
 
   // DB Diagnostic state
   const [testingDb, setTestingDb] = useState(false);
@@ -337,6 +340,10 @@ export default function SettingsTab() {
     
     window.addEventListener('online', handleOnline);
 
+    // Offline backup event listener
+    const handleBackupCompleted = () => setOfflineStats(getOfflineBackupStats());
+    window.addEventListener('ams_offline_backup_completed', handleBackupCompleted);
+
     // Live log listener
     const handleLogAdded = () => loadLogs();
     const handleLogCleared = () => setLogs([]);
@@ -349,12 +356,14 @@ export default function SettingsTab() {
       window.removeEventListener('online', checkOffline);
       window.removeEventListener('offline', checkOffline);
       window.removeEventListener('online', handleOnline);
+      window.removeEventListener('ams_offline_backup_completed', handleBackupCompleted);
       window.removeEventListener('ams_log_added', handleLogAdded);
       window.removeEventListener('ams_log_cleared', handleLogCleared);
     };
   }, []);
 
   const handleInstallClick = async () => {
+    syncOfflineDataBackup().then(() => setOfflineStats(getOfflineBackupStats())).catch(console.warn);
     const promptEvent = deferredPrompt || (typeof window !== 'undefined' ? (window as any).deferredPrompt : null);
     if (promptEvent) {
       try {
@@ -545,6 +554,53 @@ export default function SettingsTab() {
           App Successfully Installed & Ready Offline
         </div>
       )}
+
+      {/* Offline Data Vault / Backup Status Card */}
+      <div className="bg-white border border-gray-200/80 rounded-2xl p-4 shadow-xs space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2.5">
+            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+              <ShieldCheck size={18} />
+            </div>
+            <div>
+              <h4 className="font-bold text-gray-800 text-xs">Offline Backup Vault</h4>
+              <p className="text-[11px] text-gray-500 font-medium">
+                {offlineStats.isReady ? `${offlineStats.employeeCount} profiles & logs saved locally` : "Backing up..."}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              setIsSyncingBackup(true);
+              await syncOfflineDataBackup();
+              setOfflineStats(getOfflineBackupStats());
+              setIsSyncingBackup(false);
+              alert("Offline backup updated successfully! All profiles and logs are ready for offline use.");
+            }}
+            disabled={isSyncingBackup || !navigator.onLine}
+            className="text-xs font-bold px-3 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 active:scale-95 transition-all flex items-center border border-blue-200/60 disabled:opacity-50"
+          >
+            <RefreshCw size={12} className={`mr-1.5 ${isSyncingBackup ? 'animate-spin text-blue-600' : 'text-blue-600'}`} />
+            {isSyncingBackup ? 'Backing up...' : 'Backup Now'}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 text-center text-xs">
+          <div className="bg-gray-50 p-2 rounded-xl border border-gray-100">
+            <p className="text-[10px] text-gray-500 font-medium">Profiles</p>
+            <p className="font-extrabold text-gray-800 text-sm mt-0.5">{offlineStats.employeeCount}</p>
+          </div>
+          <div className="bg-gray-50 p-2 rounded-xl border border-gray-100">
+            <p className="text-[10px] text-gray-500 font-medium">Recent Logs</p>
+            <p className="font-extrabold text-gray-800 text-sm mt-0.5">{offlineStats.logCount}</p>
+          </div>
+          <div className="bg-gray-50 p-2 rounded-xl border border-gray-100">
+            <p className="text-[10px] text-gray-500 font-medium">Parcels</p>
+            <p className="font-extrabold text-gray-800 text-sm mt-0.5">{offlineStats.parcelCount}</p>
+          </div>
+        </div>
+      </div>
 
       {showInstructions && (
         <div className="relative animate-fade-in">

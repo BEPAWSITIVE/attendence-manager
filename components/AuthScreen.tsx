@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { Lock, Mail, ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
+import { syncOfflineDataBackup } from "@/lib/offlineBackup";
 import Image from "next/image";
 
 export default function AuthScreen() {
@@ -38,7 +39,13 @@ export default function AuthScreen() {
     e.preventDefault();
     setLoading(true); setError(""); setSuccess("");
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setError(error.message);
+    if (error) {
+      setError(error.message);
+      setLoading(false);
+      return;
+    }
+    // Instantly begin offline backup
+    syncOfflineDataBackup().catch(console.warn);
     setLoading(false);
   };
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ams-cache-v5';
+const CACHE_NAME = 'ams-cache-v6';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

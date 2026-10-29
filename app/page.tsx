@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Users, QrCode, ClipboardList, Settings, Zap, RefreshCw, LogOut, User } from "lucide-react";
+import { Users, QrCode, ClipboardList, Settings, Zap, RefreshCw, LogOut, User, WifiOff, ShieldCheck } from "lucide-react";
+import { syncOfflineDataBackup, getOfflineBackupStats, OfflineBackupStats } from "@/lib/offlineBackup";
 import ScannerTab from '@/components/ScannerTab';
 import EmployeesTab from '@/components/EmployeesTab';
 import LogsTab from '@/components/LogsTab';
@@ -51,6 +52,9 @@ export default function Home() {
   const [aiVisitorData, setAiVisitorData] = useState<any>(null);
   const [aiParcelData, setAiParcelData] = useState<any>(null);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const [offlineStats, setOfflineStats] = useState<OfflineBackupStats>(() => getOfflineBackupStats());
+  const [isOffline, setIsOffline] = useState(false);
+  const [isSyncingBackup, setIsSyncingBackup] = useState(false);
 
   const fetchRole = async (userId: string) => {
     try {
@@ -107,10 +111,28 @@ export default function Home() {
 
   useEffect(() => {
     initGlobalLogger();
+
+    if (typeof window !== 'undefined') {
+      setIsOffline(!navigator.onLine);
+    }
+
+    const triggerBackup = () => {
+      if (typeof window !== 'undefined' && navigator.onLine) {
+        setIsSyncingBackup(true);
+        syncOfflineDataBackup().then(() => {
+          setOfflineStats(getOfflineBackupStats());
+          setIsSyncingBackup(false);
+        }).catch(() => {
+          setIsSyncingBackup(false);
+        });
+      }
+    };
+
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
       if (session) {
         await fetchRole(session.user.id);
+        triggerBackup();
       }
       setLoading(false);
     });
@@ -126,6 +148,7 @@ export default function Home() {
         }
         await fetchRole(session.user.id);
         setRoleLoading(false);
+        triggerBackup();
       } else {
         setRole("guard");
         setActiveTab("scanner");
@@ -138,11 +161,25 @@ export default function Home() {
     });
 
     const handleOnline = () => {
+      setIsOffline(false);
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session) fetchRole(session.user.id);
       });
+      triggerBackup();
     };
+
+    const handleOffline = () => {
+      setIsOffline(true);
+      setOfflineStats(getOfflineBackupStats());
+    };
+
     window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    const handleBackupCompleted = () => {
+      setOfflineStats(getOfflineBackupStats());
+    };
+    window.addEventListener('ams_offline_backup_completed', handleBackupCompleted);
 
     const handleAiScan = (e: any) => {
       const data = e.detail;
@@ -157,9 +194,19 @@ export default function Home() {
     
     window.addEventListener('ai_scan_result', handleAiScan);
 
+    // Periodic backup sync every 60 seconds when online
+    const interval = setInterval(() => {
+      if (typeof window !== 'undefined' && navigator.onLine) {
+        triggerBackup();
+      }
+    }, 60000);
+
     return () => {
       subscription.unsubscribe();
+      clearInterval(interval);
       window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('ams_offline_backup_completed', handleBackupCompleted);
       window.removeEventListener('ai_scan_result', handleAiScan);
     };
   }, []);
@@ -203,6 +250,13 @@ export default function Home() {
         </div>
         
         <div className="flex items-center space-x-2 relative">
+          {isOffline && (
+            <div className="flex items-center text-[10px] font-extrabold text-amber-800 bg-amber-100/90 border border-amber-300 px-2 py-1 rounded-full shadow-xs animate-pulse">
+              <WifiOff size={11} className="mr-1 text-amber-600 shrink-0" />
+              <span>Offline ({offlineStats.employeeCount})</span>
+            </div>
+          )}
+
           {/* Profile Icon Button */}
           <button 
             onClick={() => setShowProfileDropdown(!showProfileDropdown)} 
@@ -257,6 +311,30 @@ export default function Home() {
                   <div className="flex items-center justify-between text-xs text-gray-500 py-1.5 px-2 bg-gray-50 rounded-xl">
                     <span className="font-medium">User Role</span>
                     <span className="font-bold text-gray-700 capitalize">{role}</span>
+                  </div>
+
+                  <div className="pt-2 border-t border-gray-100 space-y-1.5">
+                    <div className="flex items-center justify-between text-xs py-1.5 px-2 bg-emerald-50 text-emerald-800 rounded-xl font-bold">
+                      <span className="flex items-center">
+                        <ShieldCheck size={14} className="mr-1 text-emerald-600" />
+                        Offline Backup
+                      </span>
+                      <span>{offlineStats.employeeCount} Profiles Ready</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setIsSyncingBackup(true);
+                        await syncOfflineDataBackup();
+                        setOfflineStats(getOfflineBackupStats());
+                        setIsSyncingBackup(false);
+                      }}
+                      disabled={isSyncingBackup || isOffline}
+                      className="w-full text-xs font-bold py-1.5 px-3 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-700 rounded-xl flex items-center justify-center transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCw size={12} className={`mr-1.5 ${isSyncingBackup ? 'animate-spin text-blue-600' : 'text-gray-500'}`} />
+                      {isSyncingBackup ? 'Backing up...' : 'Update Offline Backup Now'}
+                    </button>
                   </div>
                   
                   <button
