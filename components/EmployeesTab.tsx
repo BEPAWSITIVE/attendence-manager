@@ -15,8 +15,11 @@ import {
   FileSpreadsheet, 
   CheckCircle2, 
   Loader2,
-  ChevronDown
+  ChevronDown,
+  Pencil,
+  Trash2
 } from "lucide-react";
+import { appLogger } from "@/lib/logger";
 
 export default function EmployeesTab({ 
   role = "admin", 
@@ -50,6 +53,19 @@ export default function EmployeesTab({
   const [groupMembers, setGroupMembers] = useState<string[]>([""]);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+
+  // Edit Employee States
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editCategory, setEditCategory] = useState("Staff");
+  const [editDepartment, setEditDepartment] = useState("");
+  const [editPhone, setEditPhone] = useState("+91 ");
+  const [editVehiclePlate, setEditVehiclePlate] = useState("");
+  const [editDocumentFile, setEditDocumentFile] = useState<File | null>(null);
+  const [editExistingDocUrl, setEditExistingDocUrl] = useState<string | undefined>(undefined);
+  const [editGroupMembers, setEditGroupMembers] = useState<string[]>([""]);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     if (role === 'guard' && category !== 'Visitor') {
@@ -154,6 +170,150 @@ export default function EmployeesTab({
     setDocumentFile(null);
     setGroupMembers([""]);
     setShowForm(true);
+  };
+
+  const handleOpenEditModal = (emp: Employee) => {
+    setEditingEmployee(emp);
+    setEditName(emp.name || "");
+    setEditCategory(emp.category || "Staff");
+    setEditDepartment(emp.department || "");
+    setEditPhone(emp.phone || "+91 ");
+    setEditVehiclePlate(emp.vehicle_plate || "");
+    setEditExistingDocUrl(emp.document_url || undefined);
+    setEditDocumentFile(null);
+    if (emp.group_members) {
+      setEditGroupMembers(emp.group_members.split(",").map(m => m.trim()).filter(Boolean));
+    } else {
+      setEditGroupMembers([""]);
+    }
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingEmployee || !editName.trim()) return;
+
+    setIsSavingEdit(true);
+    try {
+      let document_url = editExistingDocUrl;
+
+      if (editDocumentFile) {
+        if (!navigator.onLine) {
+          alert("You must be online to upload new ID documents.");
+          setIsSavingEdit(false);
+          return;
+        }
+        const fileExt = editDocumentFile.name.split('.').pop() || 'jpg';
+        const fileName = `${editingEmployee.empId}_${Date.now()}.${fileExt}`.replace(/\s+/g, '_');
+        const { error: uploadError } = await supabase.storage.from('documents').upload(fileName, editDocumentFile, { cacheControl: '3600', upsert: false });
+        if (uploadError) throw uploadError;
+        const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(fileName);
+        document_url = publicUrl;
+      }
+
+      const filteredGroup = editGroupMembers.filter(m => m.trim() !== "");
+      const updatedEmp: Employee = {
+        ...editingEmployee,
+        name: editName.trim(),
+        department: editDepartment.trim() || (editCategory === 'Vehicle' ? 'Logistics' : 'General'),
+        phone: editPhone.trim(),
+        category: editCategory,
+        vehicle_plate: editVehiclePlate.trim() || undefined,
+        document_url: document_url || undefined,
+        group_members: filteredGroup.length > 0 ? filteredGroup.join(", ") : undefined,
+      };
+
+      if (navigator.onLine) {
+        const { error } = await supabase
+          .from('employees')
+          .update({
+            name: updatedEmp.name,
+            department: updatedEmp.department,
+            phone: updatedEmp.phone,
+            category: updatedEmp.category,
+            vehicle_plate: updatedEmp.vehicle_plate || null,
+            document_url: updatedEmp.document_url || null,
+            group_members: updatedEmp.group_members || null
+          })
+          .eq('empId', updatedEmp.empId);
+
+        if (error) throw error;
+      } else {
+        await localdb.employeeQueue.put(updatedEmp);
+      }
+
+      // Update cached_employees
+      const cached = localStorage.getItem('cached_employees');
+      if (cached) {
+        try {
+          const list: Employee[] = JSON.parse(cached);
+          const idx = list.findIndex(e => e.empId === updatedEmp.empId);
+          if (idx !== -1) {
+            list[idx] = updatedEmp;
+          } else {
+            list.unshift(updatedEmp);
+          }
+          localStorage.setItem('cached_employees', JSON.stringify(list));
+        } catch (err) {
+          console.error("Cache update error:", err);
+        }
+      }
+
+      // Update local state
+      setEmployees(prev => prev.map(e => e.empId === updatedEmp.empId ? updatedEmp : e));
+      if (selectedEmployee && selectedEmployee.empId === updatedEmp.empId) {
+        setSelectedEmployee(updatedEmp);
+      }
+
+      appLogger.info("Registry", `Updated profile ${updatedEmp.name} (${updatedEmp.empId})`);
+      alert(`Success! Details for ${updatedEmp.name} have been updated.`);
+      setEditingEmployee(null);
+    } catch (err: any) {
+      console.error("Failed to update profile:", err);
+      alert("Error updating profile: " + (err.message || String(err)));
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const handleDeleteEmployee = async () => {
+    if (!editingEmployee) return;
+    const confirmDelete = window.confirm(`Are you sure you want to delete ${editingEmployee.name} (${editingEmployee.empId}) from the registry? This cannot be undone.`);
+    if (!confirmDelete) return;
+
+    setIsDeleting(true);
+    try {
+      if (navigator.onLine) {
+        const { error } = await supabase.from('employees').delete().eq('empId', editingEmployee.empId);
+        if (error) throw error;
+      } else {
+        await localdb.employeeQueue.delete(editingEmployee.empId);
+      }
+
+      // Update cache
+      const cached = localStorage.getItem('cached_employees');
+      if (cached) {
+        try {
+          const list: Employee[] = JSON.parse(cached);
+          const filtered = list.filter(e => e.empId !== editingEmployee.empId);
+          localStorage.setItem('cached_employees', JSON.stringify(filtered));
+        } catch (err) {
+          console.error("Cache update error:", err);
+        }
+      }
+
+      setEmployees(prev => prev.filter(e => e.empId !== editingEmployee.empId));
+      if (selectedEmployee && selectedEmployee.empId === editingEmployee.empId) {
+        setSelectedEmployee(null);
+      }
+      appLogger.info("Registry", `Deleted profile ${editingEmployee.name} (${editingEmployee.empId})`);
+      alert(`${editingEmployee.name} has been removed from registry.`);
+      setEditingEmployee(null);
+    } catch (err: any) {
+      console.error("Failed to delete profile:", err);
+      alert("Error deleting profile: " + (err.message || String(err)));
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -953,8 +1113,8 @@ export default function EmployeesTab({
               onClick={() => setSelectedEmployee(emp)}
               className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between cursor-pointer hover:border-blue-300 transition-colors"
             >
-              <div className="flex items-center space-x-4">
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg
+              <div className="flex items-center space-x-3 sm:space-x-4 min-w-0 flex-1 mr-2">
+                <div className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center font-bold text-base sm:text-lg shrink-0
                   ${emp.category === 'Vehicle' ? 'bg-amber-100 text-amber-700' : 
                     emp.category === 'Visitor' ? 'bg-emerald-100 text-emerald-700' : 
                     emp.category === 'Volunteer' ? 'bg-purple-100 text-purple-700' : 
@@ -962,27 +1122,273 @@ export default function EmployeesTab({
                     'bg-blue-100 text-blue-700'}`}>
                   {emp.name.charAt(0).toUpperCase()}
                 </div>
-                <div>
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center space-x-2">
-                    <h3 className="font-bold text-gray-800">{emp.name}</h3>
-                    <span className="flex items-center text-[10px] uppercase tracking-wider font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-md">
+                    <h3 className="font-bold text-gray-800 text-sm sm:text-base truncate">{emp.name}</h3>
+                    <span className="flex items-center text-[10px] uppercase tracking-wider font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-md shrink-0">
                       {getCategoryIcon(emp.category)} <span className="ml-1">{emp.category || 'Staff'}</span>
                     </span>
                   </div>
-                  <p className="text-sm text-gray-500 mt-0.5 font-mono text-xs">
+                  <p className="text-xs text-gray-500 mt-0.5 font-mono truncate">
                     {emp.empId} • {emp.category === 'Vehicle' ? emp.vehicle_plate : emp.department}
                     {emp.vehicle_plate && emp.category !== 'Vehicle' && ` • ID: ${emp.vehicle_plate}`}
                   </p>
                 </div>
               </div>
               
-              {emp.document_url && (
-                <div className="text-emerald-500 bg-emerald-50 p-2 rounded-full" title="Document Attached">
-                  <FileText size={18} />
-                </div>
-              )}
+              <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
+                {emp.document_url && (
+                  <div className="text-emerald-500 bg-emerald-50 p-2 rounded-xl" title="Document Attached">
+                    <FileText size={16} />
+                  </div>
+                )}
+                {role === 'admin' && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenEditModal(emp);
+                    }}
+                    className="p-2 sm:px-3 sm:py-1.5 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 text-blue-700 border border-blue-200 rounded-xl font-bold text-xs flex items-center space-x-1 transition-all active:scale-95 shadow-xs"
+                    title={`Edit ${emp.name}`}
+                    aria-label={`Edit ${emp.name}`}
+                  >
+                    <Pencil size={13} className="text-blue-600 shrink-0" />
+                    <span className="hidden sm:inline">Edit</span>
+                  </button>
+                )}
+              </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Edit Profile Modal */}
+      {editingEmployee && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md">
+                  <Pencil size={18} />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-gray-800 text-base">Edit {editCategory} Details</h3>
+                  <p className="text-xs text-gray-500 font-mono font-bold">{editingEmployee.empId}</p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setEditingEmployee(null)}
+                className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-white transition-colors"
+                disabled={isSavingEdit || isDeleting}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSaveEdit} className="p-5 overflow-y-auto space-y-4 flex-1">
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Category</label>
+                <select 
+                  value={editCategory}
+                  onChange={(e) => setEditCategory(e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm"
+                >
+                  <option value="Staff">Staff</option>
+                  <option value="Volunteer">Volunteer</option>
+                  <option value="Vehicle">Vehicle</option>
+                  <option value="Visitor">Visitor</option>
+                </select>
+              </div>
+
+              <div className="flex space-x-3">
+                <div className="w-1/3">
+                  <label className="block text-xs font-bold text-gray-500 mb-1">ID (Fixed)</label>
+                  <input 
+                    type="text" 
+                    value={editingEmployee.empId} 
+                    readOnly
+                    disabled
+                    className="w-full bg-gray-100 border border-gray-200 p-3 rounded-xl outline-none font-mono text-gray-500 cursor-not-allowed select-none font-bold text-xs"
+                    title="Employee ID cannot be changed"
+                  />
+                </div>
+                <div className="w-2/3">
+                  <label className="block text-xs font-bold text-gray-500 mb-1">
+                    {editCategory === 'Vehicle' ? 'Vehicle Name *' : 'Full Name *'}
+                  </label>
+                  <input 
+                    type="text" 
+                    value={editName} 
+                    onChange={e => setEditName(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm"
+                    required
+                  />
+                </div>
+              </div>
+
+              {editCategory === 'Vehicle' ? (
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 mb-1">License Plate Number</label>
+                  <input 
+                    type="text" 
+                    value={editVehiclePlate} 
+                    onChange={e => setEditVehiclePlate(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono uppercase text-sm"
+                    placeholder="e.g. MH-12-AB-1234"
+                  />
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex space-x-3">
+                    <div className="w-1/2">
+                      <label className="block text-xs font-bold text-gray-500 mb-1">
+                        {editCategory === 'Visitor' ? 'Purpose/Org' : 'Department'}
+                      </label>
+                      <input 
+                        type="text" 
+                        value={editDepartment} 
+                        onChange={e => setEditDepartment(e.target.value)}
+                        className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm"
+                        placeholder="e.g. Operations, Admin"
+                      />
+                    </div>
+                    <div className="w-1/2">
+                      <label className="block text-xs font-bold text-gray-500 mb-1">Phone Number</label>
+                      <input 
+                        type="tel" 
+                        value={editPhone} 
+                        onChange={e => setEditPhone(e.target.value)}
+                        className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm"
+                        placeholder="+91 "
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Identity ID No. (Aadhar, PAN, etc.)</label>
+                    <input 
+                      type="text" 
+                      value={editVehiclePlate} 
+                      onChange={e => setEditVehiclePlate(e.target.value)}
+                      placeholder="e.g. 1234-5678-9012"
+                      className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono uppercase text-sm"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* ID Document / Photo section */}
+              <div className="pt-1">
+                <label className="block text-xs font-bold text-gray-500 mb-1">Attached Document / ID Photo</label>
+                {editExistingDocUrl && !editDocumentFile && (
+                  <div className="mb-2 p-2.5 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-between text-xs">
+                    <div className="flex items-center space-x-2 text-blue-700 font-medium">
+                      <FileText size={16} />
+                      <a href={editExistingDocUrl} target="_blank" rel="noreferrer" className="underline font-bold hover:text-blue-900 truncate max-w-[180px]">
+                        View Current Document
+                      </a>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditExistingDocUrl(undefined)}
+                      className="text-red-500 hover:text-red-700 text-[11px] font-bold"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
+                
+                <div className="relative w-full bg-gray-50 border-2 border-dashed border-gray-200 p-3 rounded-xl text-center hover:bg-gray-100 transition-colors">
+                  <input 
+                    type="file" 
+                    accept="image/*"
+                    onChange={e => e.target.files && setEditDocumentFile(e.target.files[0])}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  />
+                  <div className="text-gray-500 text-xs font-medium flex flex-col items-center justify-center">
+                    {editDocumentFile ? (
+                      <span className="text-emerald-600 font-bold flex items-center">
+                        <CheckCircle2 size={15} className="mr-1" /> New File: {editDocumentFile.name}
+                      </span>
+                    ) : (
+                      <span>{editExistingDocUrl ? "Tap to Replace Document (Optional)" : "Tap to Upload ID Photo / Document (Optional)"}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {editCategory === 'Visitor' && (
+                <div className="space-y-2 pt-2 border-t border-gray-100">
+                  <label className="block text-xs font-bold text-gray-500">Group Members (Optional)</label>
+                  {editGroupMembers.map((member, idx) => (
+                    <div key={idx} className="flex space-x-2">
+                      <input 
+                        type="text" 
+                        value={member}
+                        onChange={(e) => {
+                          const newMembers = [...editGroupMembers];
+                          newMembers[idx] = e.target.value;
+                          setEditGroupMembers(newMembers);
+                        }}
+                        placeholder={`Member ${idx + 1} Name`}
+                        className="flex-1 bg-gray-50 border border-gray-200 p-2.5 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-xs"
+                      />
+                    </div>
+                  ))}
+                  <button 
+                    type="button" 
+                    onClick={() => setEditGroupMembers([...editGroupMembers, ""])}
+                    className="text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 px-2.5 py-1 rounded-lg"
+                  >
+                    + Add person
+                  </button>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex space-x-2 pt-3 border-t border-gray-100">
+                <button 
+                  type="button" 
+                  onClick={() => setEditingEmployee(null)}
+                  disabled={isSavingEdit || isDeleting}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl font-bold text-xs transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={isSavingEdit || isDeleting}
+                  className="flex-1 bg-blue-900 hover:bg-blue-800 text-white py-2.5 rounded-xl font-bold text-xs shadow-md transition-colors flex items-center justify-center disabled:opacity-50"
+                >
+                  {isSavingEdit ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin mr-1.5" />
+                      Saving...
+                    </>
+                  ) : (
+                    'Save Changes'
+                  )}
+                </button>
+              </div>
+
+              {/* Delete profile option */}
+              <div className="pt-2 text-center">
+                <button
+                  type="button"
+                  onClick={handleDeleteEmployee}
+                  disabled={isSavingEdit || isDeleting}
+                  className="text-xs text-red-600 hover:text-red-700 font-bold hover:underline inline-flex items-center space-x-1"
+                >
+                  <Trash2 size={13} className="text-red-500" />
+                  <span>{isDeleting ? "Deleting..." : "Delete Profile"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
@@ -1048,7 +1454,20 @@ export default function EmployeesTab({
               )}
             </div>
 
-            <div className="bg-gray-50 p-4 border-t border-gray-100 px-6">
+            <div className="bg-gray-50 p-4 border-t border-gray-100 px-6 space-y-2">
+              {role === 'admin' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const empToEdit = selectedEmployee;
+                    setSelectedEmployee(null);
+                    handleOpenEditModal(empToEdit);
+                  }}
+                  className="w-full bg-blue-50 hover:bg-blue-100 active:bg-blue-200 text-blue-800 border border-blue-200 py-2.5 rounded-xl flex items-center justify-center font-bold transition-colors text-xs active:scale-95 shadow-xs"
+                >
+                  <Pencil size={14} className="mr-1.5 text-blue-600" /> Edit Staff Details
+                </button>
+              )}
               <div className="w-full flex space-x-2">
                 <button 
                   onClick={() => {
