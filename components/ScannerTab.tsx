@@ -384,6 +384,9 @@ export default function ScannerTab() {
         
         const updatedRecord = {
           ...lastRecord,
+          empName: emp.name || lastRecord.empName,
+          department: emp.department || lastRecord.department,
+          category: emp.category || lastRecord.category,
           outTime: timeStr,
           outTimestamp: outTimestamp,
           totalHours: `${hrs}h ${mins}m`,
@@ -486,6 +489,8 @@ export default function ScannerTab() {
       
       const updatedRecord = {
         ...lastRecord,
+        empName: profile.name || lastRecord.empName,
+        category: profile.category || lastRecord.category || 'Vehicle',
         outTime: timeStr,
         outTimestamp: today.getTime(),
         meter_in: meterIn,
@@ -1144,49 +1149,76 @@ export default function ScannerTab() {
                   filteredToday.map((r) => (
                     <div
                       key={r.recordId}
-                      className="bg-white border border-gray-100 hover:border-blue-200 p-3 rounded-2xl shadow-2xs transition-all flex items-center justify-between"
+                      className="bg-white border border-gray-100 hover:border-blue-200 p-3.5 rounded-2xl shadow-2xs transition-all space-y-2.5"
                     >
-                      <div className="flex items-center space-x-3 min-w-0 flex-1 mr-2">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${
-                          r.category === 'Vehicle' ? 'bg-amber-100 text-amber-700' :
-                          r.category === 'Volunteer' ? 'bg-purple-100 text-purple-700' :
-                          r.category === 'Visitor' ? 'bg-emerald-100 text-emerald-700' :
-                          'bg-blue-100 text-blue-700'
-                        }`}>
-                          {r.empName?.charAt(0)?.toUpperCase() || '?'}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center space-x-1.5">
-                            <p className="font-bold text-gray-900 text-xs truncate">{r.empName}</p>
-                            <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded ${
-                              r.category === 'Vehicle' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                              r.category === 'Volunteer' ? 'bg-purple-50 text-purple-700 border border-purple-200' :
-                              r.category === 'Visitor' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-                              'bg-blue-50 text-blue-700 border border-blue-200'
-                            }`}>
-                              {r.category || 'Staff'}
-                            </span>
+                      {/* Top Row: Avatar + Full Proper Name + Category Badge on left, Status Badge on right */}
+                      <div className="flex items-start justify-between gap-2.5">
+                        <div className="flex items-start space-x-3 min-w-0 flex-1">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 shadow-2xs mt-0.5 ${
+                            r.category === 'Vehicle' ? 'bg-amber-100 text-amber-700' :
+                            r.category === 'Volunteer' ? 'bg-purple-100 text-purple-700' :
+                            r.category === 'Visitor' ? 'bg-emerald-100 text-emerald-700' :
+                            'bg-blue-100 text-blue-700'
+                          }`}>
+                            {r.empName?.charAt(0)?.toUpperCase() || '?'}
                           </div>
-                          <p className="text-[11px] text-gray-500 font-mono truncate mt-0.5">
-                            {r.empId} • {r.department}
-                            {r.driver_name && ` • Driver: ${r.driver_name}`}
-                          </p>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center flex-wrap gap-1.5">
+                              <h4 className="font-extrabold text-gray-900 text-sm leading-tight break-words">
+                                {r.empName || 'Unknown Name'}
+                              </h4>
+                              <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-md shrink-0 ${
+                                r.category === 'Vehicle' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                                r.category === 'Volunteer' ? 'bg-purple-50 text-purple-700 border border-purple-200' :
+                                r.category === 'Visitor' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                                'bg-blue-50 text-blue-700 border border-blue-200'
+                              }`}>
+                                {r.category || 'Staff'}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-gray-500 font-mono mt-1 break-all">
+                              {r.empId} • {r.department || 'General'}
+                              {r.driver_name && ` • Driver: ${r.driver_name}`}
+                              {r.location && ` • Destination: ${r.location}`}
+                            </p>
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="text-right shrink-0">
-                        <div className="flex items-center justify-end space-x-1">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                        {/* Status Badge */}
+                        <div className="shrink-0 pt-0.5">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold tracking-wide uppercase shadow-2xs ${
                             r.status === 'IN' 
-                              ? 'bg-emerald-100 text-emerald-800' 
-                              : 'bg-gray-100 text-gray-700'
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' 
+                              : 'bg-gray-100 text-gray-700 border border-gray-200'
                           }`}>
                             {r.status === 'IN' ? '● IN' : 'OUT'}
                           </span>
                         </div>
-                        <div className="text-[10px] font-mono text-gray-500 mt-1 font-semibold">
-                          <span>In: {r.inTime}</span>
-                          {r.outTime && <span className="ml-1 text-gray-700">• Out: {r.outTime}</span>}
+                      </div>
+
+                      {/* Bottom Row: Dedicated In & Out Times Section */}
+                      <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-xs font-mono bg-gray-50/80 px-3 py-2 rounded-xl">
+                        <div className="flex items-center space-x-1.5 text-emerald-800 font-bold">
+                          <span className="text-[10px] uppercase font-semibold text-gray-400 font-sans">IN:</span>
+                          <span>{r.inTime || '--:--'}</span>
+                        </div>
+
+                        <div className="flex items-center space-x-1.5">
+                          <span className="text-[10px] uppercase font-semibold text-gray-400 font-sans">OUT:</span>
+                          {r.outTime ? (
+                            <span className="font-bold text-gray-800">
+                              {r.outTime}
+                              {r.totalHours && (
+                                <span className="text-[10px] font-sans text-gray-500 ml-1.5 font-normal">
+                                  ({r.totalHours})
+                                </span>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] font-sans font-bold text-emerald-600 italic">
+                              Still Inside
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
