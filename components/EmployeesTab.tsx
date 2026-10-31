@@ -18,7 +18,8 @@ import {
   ChevronDown,
   Pencil,
   Trash2,
-  Search
+  Search,
+  Clock
 } from "lucide-react";
 import { appLogger } from "@/lib/logger";
 
@@ -52,6 +53,7 @@ export default function EmployeesTab({
   const [vehiclePlate, setVehiclePlate] = useState("");
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [groupMembers, setGroupMembers] = useState<string[]>([""]);
+  const [allowEntryTime, setAllowEntryTime] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
 
@@ -69,6 +71,7 @@ export default function EmployeesTab({
   const [editDocumentFile, setEditDocumentFile] = useState<File | null>(null);
   const [editExistingDocUrl, setEditExistingDocUrl] = useState<string | undefined>(undefined);
   const [editGroupMembers, setEditGroupMembers] = useState<string[]>([""]);
+  const [editAllowEntryTime, setEditAllowEntryTime] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -174,6 +177,7 @@ export default function EmployeesTab({
     setVehiclePlate("");
     setDocumentFile(null);
     setGroupMembers([""]);
+    setAllowEntryTime(false);
     setShowForm(true);
   };
 
@@ -213,7 +217,9 @@ export default function EmployeesTab({
     setEditVehiclePlate(emp.vehicle_plate || "");
     setEditExistingDocUrl(emp.document_url || undefined);
     setEditDocumentFile(null);
-    if (emp.group_members) {
+    const isAllowed = emp.allow_entry_time_edit === true || (typeof emp.group_members === 'string' && emp.group_members.includes('__ALLOW_ENTRY_TIME_EDIT__'));
+    setEditAllowEntryTime(!!isAllowed);
+    if (emp.group_members && !emp.group_members.includes('__ALLOW_ENTRY_TIME_EDIT__')) {
       setEditGroupMembers(emp.group_members.split(",").map(m => m.trim()).filter(Boolean));
     } else {
       setEditGroupMembers([""]);
@@ -243,6 +249,11 @@ export default function EmployeesTab({
       }
 
       const filteredGroup = editGroupMembers.filter(m => m.trim() !== "");
+      let groupMembersVal: string | undefined = filteredGroup.length > 0 ? filteredGroup.join(", ") : undefined;
+      if (editCategory === 'Staff') {
+        groupMembersVal = editAllowEntryTime ? '__ALLOW_ENTRY_TIME_EDIT__' : undefined;
+      }
+
       const updatedEmp: Employee = {
         ...editingEmployee,
         name: editName.trim(),
@@ -251,7 +262,8 @@ export default function EmployeesTab({
         category: editCategory,
         vehicle_plate: editVehiclePlate.trim() || undefined,
         document_url: document_url || undefined,
-        group_members: filteredGroup.length > 0 ? filteredGroup.join(", ") : undefined,
+        group_members: groupMembersVal,
+        allow_entry_time_edit: editAllowEntryTime,
       };
 
       if (navigator.onLine) {
@@ -264,11 +276,28 @@ export default function EmployeesTab({
             category: updatedEmp.category,
             vehicle_plate: updatedEmp.vehicle_plate || null,
             document_url: updatedEmp.document_url || null,
-            group_members: updatedEmp.group_members || null
+            group_members: updatedEmp.group_members || null,
+            allow_entry_time_edit: updatedEmp.allow_entry_time_edit
           })
           .eq('empId', updatedEmp.empId);
 
-        if (error) throw error;
+        if (error) {
+          // If allow_entry_time_edit column doesn't exist yet, retry without it
+          // The fallback tag in group_members ensures it persists in DB anyway!
+          const { error: retryError } = await supabase
+            .from('employees')
+            .update({
+              name: updatedEmp.name,
+              department: updatedEmp.department,
+              phone: updatedEmp.phone,
+              category: updatedEmp.category,
+              vehicle_plate: updatedEmp.vehicle_plate || null,
+              document_url: updatedEmp.document_url || null,
+              group_members: updatedEmp.group_members || null
+            })
+            .eq('empId', updatedEmp.empId);
+          if (retryError) throw retryError;
+        }
       } else {
         await localdb.employeeQueue.put(updatedEmp);
       }
@@ -606,6 +635,11 @@ export default function EmployeesTab({
     }
     
     const filteredGroup = groupMembers.filter(m => m.trim() !== "");
+    let groupMembersVal: string | undefined = filteredGroup.length > 0 ? filteredGroup.join(", ") : undefined;
+    if (category === 'Staff' && allowEntryTime) {
+      groupMembersVal = '__ALLOW_ENTRY_TIME_EDIT__';
+    }
+
     const newEmp: Employee = {
       empId, 
       name, 
@@ -614,14 +648,20 @@ export default function EmployeesTab({
       category,
       document_url: document_url || undefined,
       vehicle_plate: vehiclePlate || undefined,
-      group_members: filteredGroup.length > 0 ? filteredGroup.join(", ") : undefined,
+      group_members: groupMembersVal,
+      allow_entry_time_edit: allowEntryTime,
       createdAt: new Date().toISOString()
     };
     
     if (navigator.onLine) {
       try {
         const { error } = await supabase.from('employees').insert([newEmp]);
-        if (error) throw error;
+        if (error) {
+          const sanitized = { ...newEmp };
+          delete sanitized.allow_entry_time_edit;
+          const { error: retryErr } = await supabase.from('employees').insert([sanitized]);
+          if (retryErr) throw retryErr;
+        }
       } catch (err: any) {
         alert("Error adding profile: " + err.message);
         setIsUploading(false);
@@ -917,6 +957,35 @@ export default function EmployeesTab({
                       placeholder="e.g. 1234-5678-9012"
                       className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono uppercase"
                     />
+                  </div>
+                )}
+
+                {category === 'Staff' && (
+                  <div className="p-3.5 bg-gradient-to-r from-blue-50/80 to-indigo-50/80 border border-blue-200/80 rounded-2xl flex items-center justify-between shadow-2xs mt-3">
+                    <div className="pr-3">
+                      <div className="flex items-center space-x-1.5">
+                        <Clock size={16} className="text-blue-700 shrink-0" />
+                        <span className="text-xs font-extrabold text-gray-800">Allow Entry Time Edit</span>
+                      </div>
+                      <p className="text-[11px] text-gray-500 mt-0.5 leading-tight">
+                        When enabled, guards can edit this staff member's punch-in / entry time from Today's Attendance.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={allowEntryTime}
+                      onClick={() => setAllowEntryTime(!allowEntryTime)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        allowEntryTime ? 'bg-blue-600' : 'bg-gray-300'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                          allowEntryTime ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
                   </div>
                 )}
               </div>
@@ -1233,11 +1302,16 @@ export default function EmployeesTab({
                   {emp.name.charAt(0).toUpperCase()}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                     <h3 className="font-bold text-gray-800 text-sm sm:text-base truncate">{emp.name}</h3>
                     <span className="flex items-center text-[10px] uppercase tracking-wider font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-md shrink-0">
                       {getCategoryIcon(emp.category)} <span className="ml-1">{emp.category || 'Staff'}</span>
                     </span>
+                    {emp.category === 'Staff' && (emp.allow_entry_time_edit === true || (typeof emp.group_members === 'string' && emp.group_members.includes('__ALLOW_ENTRY_TIME_EDIT__'))) && (
+                      <span className="hidden sm:inline-flex items-center text-[9px] uppercase tracking-wider font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded-md shrink-0" title="Guard can edit entry time">
+                        <Clock size={10} className="mr-0.5 text-emerald-600" /> Time Edit
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-gray-500 mt-0.5 font-mono truncate">
                     {emp.empId} • {emp.category === 'Vehicle' ? emp.vehicle_plate : emp.department}
@@ -1388,6 +1462,36 @@ export default function EmployeesTab({
                       className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono uppercase text-sm"
                     />
                   </div>
+                </div>
+              )}
+
+              {/* Allow Entry Time Edit Toggle (for Staff) */}
+              {editCategory === 'Staff' && (
+                <div className="p-3.5 bg-gradient-to-r from-blue-50/80 to-indigo-50/80 border border-blue-200/80 rounded-2xl flex items-center justify-between shadow-2xs">
+                  <div className="pr-3">
+                    <div className="flex items-center space-x-1.5">
+                      <Clock size={16} className="text-blue-700 shrink-0" />
+                      <span className="text-xs font-extrabold text-gray-800">Allow Entry Time Edit</span>
+                    </div>
+                    <p className="text-[11px] text-gray-500 mt-0.5 leading-tight">
+                      When enabled, guards can edit this staff member's punch-in / entry time from Today's Attendance.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={editAllowEntryTime}
+                    onClick={() => setEditAllowEntryTime(!editAllowEntryTime)}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      editAllowEntryTime ? 'bg-blue-600' : 'bg-gray-300'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                        editAllowEntryTime ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
                 </div>
               )}
 

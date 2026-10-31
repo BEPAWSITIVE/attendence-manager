@@ -3,7 +3,7 @@ import { useEffect, useState, useRef } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { supabase, AttendanceRecord, Employee } from "@/lib/supabase";
 import { localdb } from "@/lib/localdb";
-import { CheckCircle2, AlertCircle, X, Truck, Package, Search, ChevronRight, Loader2, Sparkles, Camera, Flashlight, FlashlightOff, WifiOff, ClipboardList, RefreshCw, Clock } from "lucide-react";
+import { CheckCircle2, AlertCircle, X, Truck, Package, Search, ChevronRight, Loader2, Sparkles, Camera, Flashlight, FlashlightOff, WifiOff, ClipboardList, RefreshCw, Clock, Pencil } from "lucide-react";
 import { syncOfflineDataBackup, updateCachedEmployee, updateCachedAttendance } from "@/lib/offlineBackup";
 
 const getCachedProfile = (id: string): Employee | null => {
@@ -15,6 +15,43 @@ const getCachedProfile = (id: string): Employee | null => {
     }
   } catch (e) {}
   return null;
+};
+
+const isEntryTimeEditAllowed = (empId: string): boolean => {
+  const profile = getCachedProfile(empId);
+  if (!profile) return false;
+  if (profile.allow_entry_time_edit === true) return true;
+  if (typeof profile.group_members === 'string' && profile.group_members.includes('__ALLOW_ENTRY_TIME_EDIT__')) return true;
+  return false;
+};
+
+const convertTo24Hour = (timeStr: string): string => {
+  if (!timeStr) return "";
+  const match24 = timeStr.match(/^(\d{1,2}):(\d{2})$/);
+  if (match24) {
+    return `${match24[1].padStart(2, '0')}:${match24[2]}`;
+  }
+  const match12 = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (match12) {
+    let hours = parseInt(match12[1], 10);
+    const minutes = match12[2];
+    const modifier = (match12[3] || '').toUpperCase();
+    if (modifier === 'PM' && hours < 12) hours += 12;
+    if (modifier === 'AM' && hours === 12) hours = 0;
+    return `${String(hours).padStart(2, '0')}:${minutes}`;
+  }
+  return "";
+};
+
+const formatTo12Hour = (time24: string): string => {
+  if (!time24) return "";
+  const parts = time24.split(":");
+  let hours = parseInt(parts[0], 10);
+  const minutes = parts[1] || "00";
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+  return `${String(hours).padStart(2, "0")}:${minutes} ${ampm}`;
 };
 
 const getCombinedRecords = async (id: string, date: string): Promise<any[]> => {
@@ -82,6 +119,11 @@ export default function ScannerTab() {
   const [todaySearch, setTodaySearch] = useState("");
   const [isLoadingToday, setIsLoadingToday] = useState(false);
 
+  // Guard Edit Entry Time States
+  const [editingInTimeRecord, setEditingInTimeRecord] = useState<AttendanceRecord | null>(null);
+  const [newInTimeValue, setNewInTimeValue] = useState("");
+  const [isSavingInTime, setIsSavingInTime] = useState(false);
+
   const updateOfflineState = () => {
     if (typeof window === 'undefined') return;
     setIsOffline(!navigator.onLine);
@@ -105,6 +147,12 @@ export default function ScannerTab() {
           .eq('date', todayStr)
           .order('inTimestamp', { ascending: false });
         if (!error && data) list = data;
+
+        // Background update of cached employees so latest permission toggles are available
+        const { data: emps } = await supabase.from('employees').select('*');
+        if (emps && Array.isArray(emps)) {
+          localStorage.setItem('cached_employees', JSON.stringify(emps));
+        }
       } catch (e) {
         console.warn("Could not fetch today records online:", e);
       }
@@ -174,6 +222,88 @@ export default function ScannerTab() {
       };
     }
   }, []);
+
+  const handleOpenEditInTime = (record: AttendanceRecord) => {
+    setEditingInTimeRecord(record);
+    const val24 = convertTo24Hour(record.inTime);
+    if (val24) {
+      setNewInTimeValue(val24);
+    } else {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      setNewInTimeValue(`${hh}:${mm}`);
+    }
+  };
+
+  const handleSaveInTime = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingInTimeRecord || !newInTimeValue) return;
+
+    setIsSavingInTime(true);
+    try {
+      const formatted12 = formatTo12Hour(newInTimeValue);
+      const [hhStr, mmStr] = newInTimeValue.split(':');
+      const hh = parseInt(hhStr, 10);
+      const mm = parseInt(mmStr, 10);
+
+      const dateParts = editingInTimeRecord.date.split('-');
+      const newInDate = new Date(
+        parseInt(dateParts[0], 10),
+        parseInt(dateParts[1], 10) - 1,
+        parseInt(dateParts[2], 10),
+        hh,
+        mm,
+        0
+      );
+      const newInTimestamp = newInDate.getTime();
+
+      let newTotalHours = editingInTimeRecord.totalHours;
+      if (editingInTimeRecord.outTimestamp && editingInTimeRecord.status === 'OUT') {
+        const diffMs = Math.max(0, editingInTimeRecord.outTimestamp - newInTimestamp);
+        const hrs = Math.floor(diffMs / 3600000);
+        const mins = Math.floor((diffMs % 3600000) / 60000);
+        newTotalHours = `${hrs}h ${mins}m`;
+      }
+
+      const updatedRecord: AttendanceRecord = {
+        ...editingInTimeRecord,
+        inTime: formatted12,
+        inTimestamp: newInTimestamp,
+        totalHours: newTotalHours,
+        isSynced: navigator.onLine ? 1 : 0,
+        updatedAt: new Date().toISOString()
+      };
+
+      if (navigator.onLine) {
+        const { error } = await supabase
+          .from('attendance')
+          .update({
+            inTime: updatedRecord.inTime,
+            inTimestamp: updatedRecord.inTimestamp,
+            totalHours: updatedRecord.totalHours || null,
+            isSynced: 1,
+            updatedAt: updatedRecord.updatedAt
+          })
+          .eq('recordId', updatedRecord.recordId);
+
+        if (error) throw error;
+      } else {
+        await localdb.syncQueue.put(updatedRecord);
+      }
+
+      updateCachedAttendance(updatedRecord);
+      setTodayRecords(prev => prev.map(rec => rec.recordId === updatedRecord.recordId ? updatedRecord : rec));
+      
+      playSuccessSound();
+      setEditingInTimeRecord(null);
+    } catch (err: any) {
+      console.error("Failed to update entry time:", err);
+      alert("Error updating entry time: " + (err.message || String(err)));
+    } finally {
+      setIsSavingInTime(false);
+    }
+  };
 
   const toggleTorch = async () => {
     const nextState = !isTorchOn;
@@ -1198,9 +1328,21 @@ export default function ScannerTab() {
 
                       {/* Bottom Row: Dedicated In & Out Times Section */}
                       <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-xs font-mono bg-gray-50/80 px-3 py-2 rounded-xl">
-                        <div className="flex items-center space-x-1.5 text-emerald-800 font-bold">
+                        <div className="flex items-center space-x-1.5 text-emerald-800 font-bold flex-wrap gap-y-1">
                           <span className="text-[10px] uppercase font-semibold text-gray-400 font-sans">IN:</span>
                           <span>{r.inTime || '--:--'}</span>
+                          {isEntryTimeEditAllowed(r.empId) && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditInTime(r)}
+                              className="ml-1.5 px-2 py-0.5 bg-emerald-100 hover:bg-emerald-200 active:bg-emerald-300 text-emerald-900 border border-emerald-300 rounded-lg text-[10px] font-bold font-sans flex items-center space-x-1 transition-all active:scale-95 shadow-2xs"
+                              title="Edit Entry Time"
+                              aria-label={`Edit entry time for ${r.empName}`}
+                            >
+                              <Pencil size={10} className="text-emerald-700 shrink-0" />
+                              <span>Edit</span>
+                            </button>
+                          )}
                         </div>
 
                         <div className="flex items-center space-x-1.5">
@@ -1245,6 +1387,106 @@ export default function ScannerTab() {
           </div>
         );
       })()}
+
+      {/* Guard Edit Entry Time Modal */}
+      {editingInTimeRecord && (
+        <div className="fixed inset-0 z-[150] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl relative border border-gray-100 flex flex-col">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-emerald-600 to-teal-700 p-4 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shadow-inner">
+                  <Clock size={20} />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm sm:text-base leading-tight">Edit Entry Time</h3>
+                  <p className="text-[11px] text-emerald-100 mt-0.5">Today's Attendance Punch-In</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingInTimeRecord(null)}
+                className="p-1.5 rounded-full hover:bg-white/20 text-white/80 hover:text-white transition-colors"
+                disabled={isSavingInTime}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Staff Info */}
+            <div className="p-3.5 bg-gray-50 border-b border-gray-100 flex items-center space-x-3">
+              <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-sm shrink-0">
+                {editingInTimeRecord.empName?.charAt(0)?.toUpperCase() || '?'}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="font-extrabold text-gray-900 text-sm truncate">{editingInTimeRecord.empName}</p>
+                <p className="text-xs text-gray-500 font-mono mt-0.5 truncate">
+                  {editingInTimeRecord.empId} • {editingInTimeRecord.department || 'Staff'}
+                </p>
+              </div>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSaveInTime} className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">
+                  Current Entry Time Recorded
+                </label>
+                <div className="p-2.5 bg-gray-100 rounded-xl text-xs font-mono font-bold text-gray-700 flex items-center justify-between">
+                  <span>{editingInTimeRecord.inTime || 'Not set'}</span>
+                  <span className="text-[10px] text-gray-500 font-sans">Date: {editingInTimeRecord.date}</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Select New Entry Time *
+                </label>
+                <div className="relative">
+                  <input
+                    type="time"
+                    value={newInTimeValue}
+                    onChange={(e) => setNewInTimeValue(e.target.value)}
+                    className="w-full bg-white border-2 border-emerald-300 focus:border-emerald-500 p-3 rounded-2xl outline-none font-mono text-xl font-bold text-gray-800 text-center tracking-wider shadow-inner"
+                    required
+                  />
+                </div>
+                {newInTimeValue && (
+                  <p className="text-center text-xs font-bold text-emerald-700 mt-2">
+                    Formatted: {formatTo12Hour(newInTimeValue)}
+                  </p>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingInTimeRecord(null)}
+                  disabled={isSavingInTime}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl font-bold text-xs transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingInTime || !newInTimeValue}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-bold text-xs shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center"
+                >
+                  {isSavingInTime ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin mr-1.5" />
+                      Saving...
+                    </>
+                  ) : (
+                    'Save New Time'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Parcel Action Modal */}
       {parcelModal && (

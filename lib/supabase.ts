@@ -15,6 +15,7 @@ export interface Employee {
   document_url?: string;
   vehicle_plate?: string;
   group_members?: string;
+  allow_entry_time_edit?: boolean;
 }
 
 export interface AttendanceRecord {
