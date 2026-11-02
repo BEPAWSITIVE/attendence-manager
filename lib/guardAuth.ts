@@ -152,8 +152,10 @@ export async function getGuardAccounts(): Promise<GuardAccount[]> {
     accounts = [...DEFAULT_GUARDS];
     // Attempt to persist default accounts in background
     if (navigator.onLine) {
-      DEFAULT_GUARDS.forEach(g => {
-        supabase.from('employees').upsert([guardToEmployee(g)]).then(() => {}).catch(() => {});
+      DEFAULT_GUARDS.forEach(async (g) => {
+        try {
+          await supabase.from('employees').upsert([guardToEmployee(g)]);
+        } catch (e) {}
       });
     }
   }
