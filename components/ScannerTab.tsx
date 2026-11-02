@@ -105,6 +105,32 @@ const playSuccessSound = () => {
   }
 };
 
+const playWarningSound = () => {
+  try {
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+    
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(320, ctx.currentTime);
+    osc.frequency.setValueAtTime(200, ctx.currentTime + 0.12);
+    
+    gainNode.gain.setValueAtTime(0, ctx.currentTime);
+    gainNode.gain.linearRampToValueAtTime(0.4, ctx.currentTime + 0.05);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+    
+    osc.connect(gainNode);
+    gainNode.connect(ctx.destination);
+    
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+    osc.start();
+    osc.stop(ctx.currentTime + 0.35);
+  } catch (err) {}
+};
+
 export default function ScannerTab() {
   const [scanResult, setScanResult] = useState<{ success: boolean; msg: string; isVehicle?: boolean } | null>(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -496,7 +522,29 @@ export default function ScannerTab() {
       const emp = empData;
       let lastRecord = existingRecords.length > 0 ? existingRecords[existingRecords.length - 1] : null;
 
+      const MIN_COOLDOWN_MS = 5 * 60 * 1000; // 5-minute cooldown between scans
+
       if (emp.category === 'Vehicle') {
+        if (lastRecord && lastRecord.status === 'IN') {
+          const timeSinceIn = today.getTime() - (lastRecord.inTimestamp || 0);
+          if (timeSinceIn < MIN_COOLDOWN_MS) {
+            const remSec = Math.ceil((MIN_COOLDOWN_MS - timeSinceIn) / 1000);
+            const remMin = Math.floor(remSec / 60);
+            const s = remSec % 60;
+            const timeText = remMin > 0 ? `${remMin}m ${s}s` : `${remSec}s`;
+            playWarningSound();
+            setScanResult({
+              success: false,
+              isVehicle: true,
+              msg: `Cooldown: Vehicle ${emp.name} was dispatched just now. Minimum 5 mins gap required before return (${timeText} remaining).`
+            });
+            setTimeout(() => {
+              setScanResult(null);
+              if (scannerRef.current) try { scannerRef.current.resume(); } catch(e) {}
+            }, 3500);
+            return;
+          }
+        }
         setVehicleModal({ profile: emp, lastRecord });
         return; 
       }
@@ -508,7 +556,30 @@ export default function ScannerTab() {
 
       if (lastRecord && lastRecord.status === 'IN') {
         const outTimestamp = today.getTime();
-        const diffMs = outTimestamp - lastRecord.inTimestamp;
+        const diffMs = outTimestamp - (lastRecord.inTimestamp || 0);
+
+        // Cooldown: prevent accidental double-scan immediately checking out after check-in
+        if (diffMs < MIN_COOLDOWN_MS) {
+          const remSec = Math.ceil((MIN_COOLDOWN_MS - diffMs) / 1000);
+          const remMin = Math.floor(remSec / 60);
+          const s = remSec % 60;
+          const timeText = remMin > 0 ? `${remMin}m ${s}s` : `${remSec}s`;
+
+          playWarningSound();
+          setScanResult({
+            success: false,
+            msg: `Cooldown active: ${emp.name} checked IN recently. Minimum 5 minutes gap required before checkout (${timeText} remaining).`
+          });
+
+          setTimeout(() => {
+            setScanResult(null);
+            if (scannerRef.current) {
+              try { scannerRef.current.resume(); } catch(e) {}
+            }
+          }, 3500);
+          return;
+        }
+
         const hrs = Math.floor(diffMs / 3600000);
         const mins = Math.floor((diffMs % 3600000) / 60000);
         
@@ -535,6 +606,31 @@ export default function ScannerTab() {
         playSuccessSound();
         setScanResult({ success: true, msg: `${emp.name} Checked OUT at ${timeStr}` + (navigator.onLine ? '' : ' (Offline)') });
       } else {
+        // Checking IN: If already checked OUT today, enforce 5-minute cooldown before checking in again
+        if (lastRecord && lastRecord.status === 'OUT' && lastRecord.outTimestamp) {
+          const timeSinceOut = today.getTime() - lastRecord.outTimestamp;
+          if (timeSinceOut < MIN_COOLDOWN_MS) {
+            const remSec = Math.ceil((MIN_COOLDOWN_MS - timeSinceOut) / 1000);
+            const remMin = Math.floor(remSec / 60);
+            const s = remSec % 60;
+            const timeText = remMin > 0 ? `${remMin}m ${s}s` : `${remSec}s`;
+
+            playWarningSound();
+            setScanResult({
+              success: false,
+              msg: `Cooldown active: ${emp.name} checked OUT recently. Minimum 5 minutes gap required before checking in again (${timeText} remaining).`
+            });
+
+            setTimeout(() => {
+              setScanResult(null);
+              if (scannerRef.current) {
+                try { scannerRef.current.resume(); } catch(e) {}
+              }
+            }, 3500);
+            return;
+          }
+        }
+
         const newRecord = {
           recordId: crypto.randomUUID(),
           empId: emp.empId,

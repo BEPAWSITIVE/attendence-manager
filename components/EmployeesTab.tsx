@@ -182,6 +182,11 @@ export default function EmployeesTab({
   };
 
   const filteredEmployees = employees.filter(emp => {
+    // Hide internal Guard/GuestGuard credential accounts from general staff/visitor registry
+    if (emp.category === 'Guard' || emp.category === 'GuestGuard') {
+      return false;
+    }
+
     // 1. Category Filter
     if (selectedCategoryFilter !== "All") {
       const empCat = emp.category || "Staff";

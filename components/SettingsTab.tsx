@@ -26,8 +26,14 @@ import {
   Search,
   Zap,
   Clock,
-  Layers
+  Layers,
+  Shield,
+  KeyRound,
+  Eye,
+  EyeOff,
+  UserPlus
 } from "lucide-react";
+import { getGuardAccounts, saveGuardAccount, deleteGuardAccount, GuardAccount } from "@/lib/guardAuth";
 import { syncOfflineDataBackup, getOfflineBackupStats, OfflineBackupStats } from "@/lib/offlineBackup";
 import { localdb } from "@/lib/localdb";
 import { supabase } from "@/lib/supabase";
@@ -58,6 +64,36 @@ export default function SettingsTab() {
     latency?: number;
     message?: string;
   }>({ status: 'idle' });
+
+  // Guard Credentials state
+  const [guards, setGuards] = useState<GuardAccount[]>([]);
+  const [guardsLoading, setGuardsLoading] = useState(false);
+  const [showAddGuardModal, setShowAddGuardModal] = useState(false);
+  const [guardType, setGuardType] = useState<'permanent' | 'guest'>('permanent');
+  const [guardName, setGuardName] = useState('');
+  const [guardLoginId, setGuardLoginId] = useState('');
+  const [guardPassword, setGuardPassword] = useState('');
+  const [guardGate, setGuardGate] = useState('Main Gate');
+  const [guardPhone, setGuardPhone] = useState('+91 ');
+  const [guestValidityDays, setGuestValidityDays] = useState<number>(1);
+  const [isSavingGuard, setIsSavingGuard] = useState(false);
+  const [showPasswordMap, setShowPasswordMap] = useState<Record<string, boolean>>({});
+  const [copiedGuardId, setCopiedGuardId] = useState<string | null>(null);
+  const [passwordModalGuard, setPasswordModalGuard] = useState<GuardAccount | null>(null);
+  const [newPasswordVal, setNewPasswordVal] = useState('');
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+
+  const loadGuards = async () => {
+    setGuardsLoading(true);
+    try {
+      const data = await getGuardAccounts();
+      setGuards(data);
+    } catch (e) {
+      console.warn("Failed to load guard accounts:", e);
+    } finally {
+      setGuardsLoading(false);
+    }
+  };
 
   // Logs state
   const [logViewMode, setLogViewMode] = useState<'system' | 'activity'>('system');
@@ -274,6 +310,7 @@ export default function SettingsTab() {
 
   useEffect(() => {
     loadLogs();
+    loadGuards();
 
     // Check if installed in standalone PWA mode
     const checkStandalone = () => {
@@ -350,6 +387,9 @@ export default function SettingsTab() {
     window.addEventListener('ams_log_added', handleLogAdded);
     window.addEventListener('ams_log_cleared', handleLogCleared);
 
+    const handleGuardsUpdated = () => loadGuards();
+    window.addEventListener('ams_guard_accounts_updated', handleGuardsUpdated);
+
     return () => {
       window.removeEventListener('beforeinstallprompt', handlePrompt);
       window.removeEventListener('appinstalled', handleAppInstalled);
@@ -359,8 +399,111 @@ export default function SettingsTab() {
       window.removeEventListener('ams_offline_backup_completed', handleBackupCompleted);
       window.removeEventListener('ams_log_added', handleLogAdded);
       window.removeEventListener('ams_log_cleared', handleLogCleared);
+      window.removeEventListener('ams_guard_accounts_updated', handleGuardsUpdated);
     };
   }, []);
+
+  const handleOpenAddGuard = (type: 'permanent' | 'guest' = 'permanent') => {
+    setGuardType(type);
+    setGuardName('');
+    const randomNum = Math.floor(100 + Math.random() * 900);
+    setGuardLoginId(type === 'guest' ? `guest${randomNum}` : `guard${randomNum}`);
+    setGuardPassword(String(Math.floor(100000 + Math.random() * 900000)));
+    setGuardGate('Main Gate');
+    setGuardPhone('+91 ');
+    setGuestValidityDays(1);
+    setShowAddGuardModal(true);
+  };
+
+  const handleSaveGuardSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!guardName.trim() || !guardLoginId.trim() || !guardPassword.trim()) {
+      alert("Please fill in all required fields (Name, Login ID, Password).");
+      return;
+    }
+
+    setIsSavingGuard(true);
+    try {
+      let expiresAt: string | null = null;
+      if (guardType === 'guest') {
+        const d = new Date();
+        d.setDate(d.getDate() + guestValidityDays);
+        expiresAt = d.toISOString();
+      }
+
+      const id = guardType === 'guest' 
+        ? `GUEST-${Date.now().toString(36).toUpperCase()}` 
+        : `GUARD-${Date.now().toString(36).toUpperCase()}`;
+
+      const newAccount: GuardAccount = {
+        id,
+        loginId: guardLoginId.toLowerCase().trim().replace(/[^a-z0-9_]/g, ''),
+        name: guardName.trim(),
+        password: guardPassword.trim(),
+        type: guardType,
+        gate: guardGate.trim() || 'Main Gate',
+        phone: guardPhone.trim(),
+        expiresAt,
+        createdAt: new Date().toISOString(),
+        status: 'active'
+      };
+
+      const res = await saveGuardAccount(newAccount);
+      if (!res.success) throw new Error(res.error || "Failed to save guard account");
+
+      await loadGuards();
+      setShowAddGuardModal(false);
+      alert(`Success! Created ${guardType === 'guest' ? 'Temporary Guest Guard' : 'Permanent Guard'} account for ${newAccount.name}. Login ID: ${newAccount.loginId}`);
+    } catch (err: any) {
+      alert("Error creating guard account: " + err.message);
+    } finally {
+      setIsSavingGuard(false);
+    }
+  };
+
+  const handleDeleteGuardAccount = async (guard: GuardAccount) => {
+    if (!window.confirm(`Are you sure you want to delete the login for ${guard.name} (${guard.loginId})? They will no longer be able to log in.`)) {
+      return;
+    }
+    try {
+      const res = await deleteGuardAccount(guard.id);
+      if (!res.success) throw new Error(res.error || "Failed to delete guard");
+      await loadGuards();
+      alert(`Guard account for ${guard.name} has been removed.`);
+    } catch (err: any) {
+      alert("Error deleting guard: " + err.message);
+    }
+  };
+
+  const handleCopyGuardCredentials = (guard: GuardAccount) => {
+    const text = `Attendance Manager - Guard Login Details\nName: ${guard.name}\nType: ${guard.type === 'guest' ? 'Guest / Temporary Guard' : 'Permanent Guard'}\nLogin ID: ${guard.loginId}\nPassword: ${guard.password}\nGate: ${guard.gate || 'Main Gate'}${guard.expiresAt ? `\nValid Until: ${new Date(guard.expiresAt).toLocaleDateString()}` : ''}`;
+    navigator.clipboard.writeText(text);
+    setCopiedGuardId(guard.id);
+    setTimeout(() => setCopiedGuardId(null), 2500);
+  };
+
+  const handleSaveNewPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!passwordModalGuard || !newPasswordVal.trim()) return;
+
+    setIsUpdatingPassword(true);
+    try {
+      const updated: GuardAccount = {
+        ...passwordModalGuard,
+        password: newPasswordVal.trim()
+      };
+      const res = await saveGuardAccount(updated);
+      if (!res.success) throw new Error(res.error || "Failed to update password");
+      await loadGuards();
+      setPasswordModalGuard(null);
+      setNewPasswordVal('');
+      alert(`Password updated successfully for ${updated.name} (${updated.loginId}).`);
+    } catch (err: any) {
+      alert("Error updating password: " + err.message);
+    } finally {
+      setIsUpdatingPassword(false);
+    }
+  };
 
   const handleInstallClick = async () => {
     syncOfflineDataBackup().then(() => setOfflineStats(getOfflineBackupStats())).catch(console.warn);
@@ -672,6 +815,193 @@ export default function SettingsTab() {
       )}
 
       {/* ======================================================== */}
+      {/* 🛡️ GUARD & GUEST GUARD CREDENTIALS MANAGEMENT SECTION */}
+      {/* ======================================================== */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        {/* Header */}
+        <div className="p-4 border-b border-gray-100 bg-gradient-to-r from-emerald-50/70 to-teal-50/70 flex items-center justify-between">
+          <div className="flex items-center space-x-2.5">
+            <div className="p-2 bg-emerald-600 text-white rounded-xl shadow-xs">
+              <Shield size={18} />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-gray-900 text-sm">Guard & Guest Logins</h3>
+              <p className="text-[11px] text-gray-500 font-medium">Manage IDs & passwords for duty guards</p>
+            </div>
+          </div>
+
+          <div className="flex space-x-1.5">
+            <button
+              type="button"
+              onClick={() => handleOpenAddGuard('permanent')}
+              className="bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white px-2.5 py-1.5 rounded-xl font-bold text-xs flex items-center shadow-xs transition-all active:scale-95"
+              title="Add Permanent Guard"
+            >
+              <UserPlus size={13} className="mr-1" />
+              <span>+ Guard</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleOpenAddGuard('guest')}
+              className="bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white px-2.5 py-1.5 rounded-xl font-bold text-xs flex items-center shadow-xs transition-all active:scale-95"
+              title="Add Temporary Guest Guard"
+            >
+              <Clock size={13} className="mr-1" />
+              <span>+ Guest</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Quick Summary Pill Row */}
+        <div className="grid grid-cols-3 gap-2 p-3 bg-gray-50/60 border-b border-gray-100 text-center text-xs font-bold">
+          <div className="bg-white p-2 rounded-xl border border-gray-100">
+            <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Total Logins</p>
+            <p className="text-sm font-extrabold text-gray-800 mt-0.5">{guards.length}</p>
+          </div>
+          <div className="bg-white p-2 rounded-xl border border-gray-100">
+            <p className="text-[10px] text-emerald-600 uppercase tracking-wider font-semibold">Permanent</p>
+            <p className="text-sm font-extrabold text-emerald-700 mt-0.5">{guards.filter(g => g.type === 'permanent').length}</p>
+          </div>
+          <div className="bg-white p-2 rounded-xl border border-gray-100">
+            <p className="text-[10px] text-amber-600 uppercase tracking-wider font-semibold">Guest Guards</p>
+            <p className="text-sm font-extrabold text-amber-700 mt-0.5">{guards.filter(g => g.type === 'guest').length}</p>
+          </div>
+        </div>
+
+        {/* Guard List */}
+        <div className="p-3 space-y-2.5 max-h-96 overflow-y-auto">
+          {guardsLoading ? (
+            <div className="py-8 text-center text-gray-400 text-xs">
+              <RefreshCw size={18} className="animate-spin mx-auto mb-1 text-emerald-600" />
+              Loading guard credentials...
+            </div>
+          ) : guards.length === 0 ? (
+            <div className="py-8 text-center text-gray-400 space-y-1">
+              <Shield size={24} className="mx-auto text-gray-300 mb-1" />
+              <p className="font-bold text-gray-700 text-xs">No Guard Logins Found</p>
+              <p className="text-[11px] text-gray-400">Tap "+ Guard" or "+ Guest" above to create credentials.</p>
+            </div>
+          ) : (
+            guards.map((guard) => {
+              const isPasswordVisible = !!showPasswordMap[guard.id];
+              const isGuest = guard.type === 'guest';
+              const isExpired = isGuest && guard.expiresAt && (Date.now() > new Date(guard.expiresAt).getTime());
+
+              return (
+                <div
+                  key={guard.id}
+                  className={`p-3 rounded-2xl border transition-all space-y-2 ${
+                    isExpired 
+                      ? 'bg-red-50/40 border-red-200' 
+                      : isGuest 
+                      ? 'bg-amber-50/30 border-amber-200/70 hover:border-amber-300' 
+                      : 'bg-white border-gray-100 hover:border-emerald-200 shadow-2xs'
+                  }`}
+                >
+                  {/* Top line: Name, Login ID, Type Badge */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 ${
+                        isGuest ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                      }`}>
+                        {isGuest ? <Clock size={16} /> : <Shield size={16} />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center space-x-1.5 flex-wrap">
+                          <h4 className="font-extrabold text-gray-900 text-xs truncate">{guard.name}</h4>
+                          <span className={`text-[9px] uppercase font-extrabold px-1.5 py-0.5 rounded-md shrink-0 ${
+                            isExpired 
+                              ? 'bg-red-100 text-red-800 border border-red-200'
+                              : isGuest 
+                              ? 'bg-amber-100 text-amber-800 border border-amber-200' 
+                              : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                          }`}>
+                            {isExpired ? 'Expired Guest' : isGuest ? 'Guest Guard' : 'Permanent'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-gray-500 font-mono mt-0.5">
+                          Login ID: <span className="font-bold text-gray-800">{guard.loginId}</span> • {guard.gate || 'Main Gate'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Password & Expiry Row */}
+                  <div className="flex items-center justify-between text-xs bg-gray-50/80 px-2.5 py-1.5 rounded-xl border border-gray-100">
+                    <div className="flex items-center space-x-2 font-mono">
+                      <KeyRound size={12} className="text-gray-400 shrink-0" />
+                      <span className="text-gray-400 text-[10px]">PASS:</span>
+                      <span className="font-bold text-gray-800 text-[11px]">
+                        {isPasswordVisible ? guard.password : '••••••••'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowPasswordMap(prev => ({ ...prev, [guard.id]: !prev[guard.id] }))}
+                        className="text-gray-400 hover:text-gray-700 ml-1 p-0.5"
+                        title={isPasswordVisible ? "Hide password" : "Show password"}
+                      >
+                        {isPasswordVisible ? <EyeOff size={12} /> : <Eye size={12} />}
+                      </button>
+                    </div>
+
+                    {isGuest && guard.expiresAt && (
+                      <span className={`text-[10px] font-medium font-sans ${isExpired ? 'text-red-600 font-bold' : 'text-amber-700'}`}>
+                        {isExpired ? 'Expired' : `Valid: ${new Date(guard.expiresAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}`}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Action Buttons: Copy, Edit Password, Delete */}
+                  <div className="flex items-center justify-end space-x-1.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleCopyGuardCredentials(guard)}
+                      className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-gray-700 rounded-lg text-[11px] font-bold flex items-center space-x-1 transition-all"
+                      title="Copy Login ID and Password to Clipboard"
+                    >
+                      {copiedGuardId === guard.id ? (
+                        <>
+                          <Check size={11} className="text-emerald-600" />
+                          <span className="text-emerald-700">Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={11} className="text-gray-500" />
+                          <span>Copy</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPasswordModalGuard(guard);
+                        setNewPasswordVal(guard.password);
+                      }}
+                      className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 text-blue-700 border border-blue-200 rounded-lg text-[11px] font-bold flex items-center space-x-1 transition-all"
+                      title="Change Password"
+                    >
+                      <KeyRound size={11} className="text-blue-600" />
+                      <span>Password</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteGuardAccount(guard)}
+                      className="p-1 hover:bg-red-50 text-gray-400 hover:text-red-600 rounded-lg transition-colors"
+                      title="Delete Guard Account"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* ======================================================== */}
       {/* 🛠️ LOGS & DIAGNOSTICS SECTION (ADMIN ERROR & EVENT LOGS) */}
       {/* ======================================================== */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -979,9 +1309,244 @@ export default function SettingsTab() {
         </button>
       </div>
 
+      {/* Create Guard Account Modal */}
+      {showAddGuardModal && (
+        <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl relative border border-gray-100 flex flex-col max-h-[92vh]">
+            <div className="bg-gradient-to-r from-emerald-600 to-teal-700 p-4 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shadow-inner">
+                  <Shield size={20} />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm sm:text-base leading-tight">
+                    {guardType === 'guest' ? 'Create Guest Guard Login' : 'Create Guard Login'}
+                  </h3>
+                  <p className="text-[11px] text-emerald-100 mt-0.5">
+                    {guardType === 'guest' ? 'Temporary access for relief guard' : 'Permanent security guard access'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddGuardModal(false)}
+                className="p-1.5 rounded-full hover:bg-white/20 text-white transition-colors"
+                disabled={isSavingGuard}
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveGuardSubmit} className="p-5 space-y-4 overflow-y-auto flex-1">
+              {/* Type Switcher */}
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">Guard Type</label>
+                <div className="flex bg-gray-100 p-1 rounded-xl text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setGuardType('permanent')}
+                    className={`flex-1 py-2 rounded-lg transition-all flex items-center justify-center space-x-1 ${
+                      guardType === 'permanent' ? 'bg-white text-emerald-800 shadow-xs' : 'text-gray-500'
+                    }`}
+                  >
+                    <Shield size={13} />
+                    <span>Permanent</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGuardType('guest')}
+                    className={`flex-1 py-2 rounded-lg transition-all flex items-center justify-center space-x-1 ${
+                      guardType === 'guest' ? 'bg-white text-amber-800 shadow-xs' : 'text-gray-500'
+                    }`}
+                  >
+                    <Clock size={13} />
+                    <span>Guest / Temp</span>
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Guard Name *</label>
+                <input
+                  type="text"
+                  value={guardName}
+                  onChange={(e) => setGuardName(e.target.value)}
+                  placeholder={guardType === 'guest' ? "e.g. Guest Guard 1" : "e.g. Ramesh Singh"}
+                  className="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-xl text-xs font-medium outline-none focus:ring-2 focus:ring-emerald-500"
+                  required
+                />
+              </div>
+
+              <div className="flex space-x-2">
+                <div className="w-1/2">
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Login ID *</label>
+                  <input
+                    type="text"
+                    value={guardLoginId}
+                    onChange={(e) => setGuardLoginId(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                    placeholder="e.g. guard1"
+                    className="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-xl text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-emerald-500 uppercase"
+                    required
+                  />
+                </div>
+                <div className="w-1/2">
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Assigned Gate</label>
+                  <input
+                    type="text"
+                    value={guardGate}
+                    onChange={(e) => setGuardGate(e.target.value)}
+                    placeholder="e.g. Main Gate"
+                    className="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-xl text-xs font-medium outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-gray-700">Password / PIN *</label>
+                  <button
+                    type="button"
+                    onClick={() => setGuardPassword(String(Math.floor(100000 + Math.random() * 900000)))}
+                    className="text-[10px] font-bold text-emerald-600 hover:text-emerald-800"
+                  >
+                    ⚡ Generate PIN
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={guardPassword}
+                  onChange={(e) => setGuardPassword(e.target.value)}
+                  placeholder="e.g. 123456"
+                  className="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-xl text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-emerald-500 tracking-wider"
+                  required
+                />
+              </div>
+
+              {/* Guest Guard Validity Duration */}
+              {guardType === 'guest' && (
+                <div className="p-3 bg-amber-50/70 rounded-xl border border-amber-200 space-y-2">
+                  <label className="block text-xs font-bold text-amber-900">Access Validity Duration</label>
+                  <div className="grid grid-cols-4 gap-1.5 text-xs font-bold">
+                    {[
+                      { label: '1 Day', days: 1 },
+                      { label: '3 Days', days: 3 },
+                      { label: '7 Days', days: 7 },
+                      { label: '30 Days', days: 30 }
+                    ].map(opt => (
+                      <button
+                        key={opt.days}
+                        type="button"
+                        onClick={() => setGuestValidityDays(opt.days)}
+                        className={`py-1.5 rounded-lg border text-center transition-all ${
+                          guestValidityDays === opt.days
+                            ? 'bg-amber-500 text-white border-amber-500 shadow-2xs'
+                            : 'bg-white text-gray-700 border-gray-200 hover:bg-amber-100/50'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-amber-800 font-medium text-center mt-1">
+                    Pass will expire in {guestValidityDays} {guestValidityDays === 1 ? 'day' : 'days'}. Guard will be locked out automatically.
+                  </p>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex space-x-2 pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setShowAddGuardModal(false)}
+                  disabled={isSavingGuard}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl font-bold text-xs transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingGuard}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center"
+                >
+                  {isSavingGuard ? "Creating..." : "Save Guard"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Change Password Modal */}
+      {passwordModalGuard && (
+        <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl relative border border-gray-100">
+            <div className="bg-blue-600 p-4 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <KeyRound size={18} />
+                <h3 className="font-extrabold text-sm">Change Guard Password</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPasswordModalGuard(null)}
+                className="p-1 rounded-full hover:bg-white/20 text-white"
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveNewPassword} className="p-5 space-y-4">
+              <div>
+                <p className="text-xs text-gray-500 font-medium">Updating login password for:</p>
+                <p className="font-bold text-gray-900 text-sm">{passwordModalGuard.name}</p>
+                <p className="text-xs font-mono text-gray-500">ID: {passwordModalGuard.loginId}</p>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-gray-700">New Password / PIN *</label>
+                  <button
+                    type="button"
+                    onClick={() => setNewPasswordVal(String(Math.floor(100000 + Math.random() * 900000)))}
+                    className="text-[10px] font-bold text-blue-600 hover:text-blue-800"
+                  >
+                    ⚡ Generate PIN
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={newPasswordVal}
+                  onChange={(e) => setNewPasswordVal(e.target.value)}
+                  placeholder="Enter new password"
+                  className="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-xl text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-blue-500 tracking-wider"
+                  required
+                />
+              </div>
+
+              <div className="flex space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setPasswordModalGuard(null)}
+                  disabled={isUpdatingPassword}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl font-bold text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingPassword || !newPasswordVal.trim()}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-md disabled:opacity-50"
+                >
+                  {isUpdatingPassword ? "Saving..." : "Update Password"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Confirmation Modal */}
       {showResetModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4">
             <div className="w-12 h-12 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center mx-auto">
               <AlertTriangle size={26} />

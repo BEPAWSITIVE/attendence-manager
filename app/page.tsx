@@ -47,6 +47,15 @@ export default function Home() {
   }, [activeTab]);
 
   const [session, setSession] = useState<any>(null);
+  const [guardSession, setGuardSession] = useState<any>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('ams_guard_session');
+        return raw ? JSON.parse(raw) : null;
+      } catch (e) {}
+    }
+    return null;
+  });
   const [loading, setLoading] = useState(true);
   const [roleLoading, setRoleLoading] = useState(false);
   const [aiVisitorData, setAiVisitorData] = useState<any>(null);
@@ -124,6 +133,21 @@ export default function Home() {
 
   useEffect(() => {
     initGlobalLogger();
+
+    const handleGuardAuth = () => {
+      try {
+        const raw = localStorage.getItem('ams_guard_session');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          setGuardSession(parsed);
+          setRole("guard");
+          setActiveTab("scanner");
+        } else {
+          setGuardSession(null);
+        }
+      } catch (e) {}
+    };
+    window.addEventListener('ams_guard_login', handleGuardAuth);
 
     if (typeof window !== 'undefined') {
       setIsOffline(!navigator.onLine);
@@ -229,6 +253,7 @@ export default function Home() {
       window.removeEventListener('ams_offline_backup_completed', handleBackupCompleted);
       window.removeEventListener('ams_today_count_changed', handleCountChanged);
       window.removeEventListener('ai_scan_result', handleAiScan);
+      window.removeEventListener('ams_guard_login', handleGuardAuth);
     };
   }, []);
 
@@ -236,8 +261,10 @@ export default function Home() {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('ams_user_role');
       localStorage.removeItem('ams_active_tab');
+      localStorage.removeItem('ams_guard_session');
       sessionStorage.removeItem('ams_active_tab');
     }
+    setGuardSession(null);
     setRole("guard");
     setActiveTab("scanner");
     await supabase.auth.signOut();
@@ -247,8 +274,17 @@ export default function Home() {
     return <div className="min-h-screen flex items-center justify-center bg-[#F4F9FF]"><div className="animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full"></div></div>;
   }
 
-  if (!session) {
-    return <AuthScreen />;
+  if (!session && !guardSession) {
+    return <AuthScreen onGuardLogin={() => {
+      try {
+        const raw = localStorage.getItem('ams_guard_session');
+        if (raw) {
+          setGuardSession(JSON.parse(raw));
+          setRole("guard");
+          setActiveTab("scanner");
+        }
+      } catch (e) {}
+    }} />;
   }
 
   return (
@@ -324,18 +360,24 @@ export default function Home() {
               <div className="absolute right-0 top-12 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 z-50 animate-fade-in">
                 <div className="flex items-center space-x-3 pb-3 border-b border-gray-100">
                   <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-500 text-white flex items-center justify-center font-bold text-lg shadow-md shadow-blue-100">
-                    {session?.user?.email ? session.user.email.charAt(0).toUpperCase() : 'U'}
+                    {guardSession 
+                      ? (guardSession.name?.charAt(0)?.toUpperCase() || 'G')
+                      : (session?.user?.email ? session.user.email.charAt(0).toUpperCase() : 'U')}
                   </div>
                   <div className="overflow-hidden flex-1">
                     <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Signed In As</p>
-                    <p className="text-xs font-bold text-gray-800 truncate" title={session?.user?.email}>
-                      {session?.user?.email || "Unknown Email"}
+                    <p className="text-xs font-bold text-gray-800 truncate" title={guardSession ? guardSession.name : session?.user?.email}>
+                      {guardSession ? `${guardSession.name} (${guardSession.loginId})` : (session?.user?.email || "Unknown User")}
                     </p>
                     <div className="mt-1">
                       <span className={`inline-flex items-center text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md tracking-wider ${
-                        role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-emerald-100 text-emerald-700'
+                        role === 'admin' 
+                          ? 'bg-purple-100 text-purple-700' 
+                          : (guardSession?.type === 'guest' ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-emerald-100 text-emerald-700')
                       }`}>
-                        {role === 'admin' ? 'Admin Access' : 'Guard Access'}
+                        {role === 'admin' 
+                          ? 'Admin Access' 
+                          : (guardSession?.type === 'guest' ? 'Guest Guard (Temp)' : 'Guard Access')}
                       </span>
                     </div>
                   </div>
