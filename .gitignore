@@ -31,3 +31,10 @@ desktop.ini
 *.log
 __pycache__/
 *.pyc
+node_modules
+
+.next/
+.env
+.env*.local
+next-env.d.ts
+*.tsbuildinfo
