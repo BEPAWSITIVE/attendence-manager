@@ -296,37 +296,15 @@ export default function AuthScreen({ onGuardLogin }: { onGuardLogin?: () => void
               </button>
             </div>
 
-            {view === 'login' && (
-              <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-100/70 text-[11px] text-gray-600 text-center leading-relaxed">
-                Universal sign-in for <span className="font-bold text-gray-800">Administrators</span>, <span className="font-bold text-gray-800">Duty Guards</span>, and <span className="font-bold text-gray-800">Guest Guards</span>.
-              </div>
-            )}
-
-            {view !== 'update' && (
-              <div className="mt-4 text-center space-y-2">
-                {view === 'login' ? (
-                  <p className="text-xs text-gray-500 font-medium">
-                    Need an admin account?{' '}
-                    <button 
-                      type="button"
-                      onClick={() => { setView('signup'); setError(""); setSuccess(""); }} 
-                      className="text-blue-600 font-bold hover:underline"
-                    >
-                      Sign up
-                    </button>
-                  </p>
-                ) : (
-                  <p className="text-xs text-gray-500 font-medium">
-                    Already have an account?{' '}
-                    <button 
-                      type="button"
-                      onClick={() => { setView('login'); setError(""); setSuccess(""); }} 
-                      className="text-blue-600 font-bold hover:underline"
-                    >
-                      Back to Sign In
-                    </button>
-                  </p>
-                )}
+            {view !== 'login' && view !== 'update' && (
+              <div className="mt-4 text-center">
+                <button 
+                  type="button"
+                  onClick={() => { setView('login'); setError(""); setSuccess(""); }} 
+                  className="text-xs text-blue-600 font-bold hover:underline"
+                >
+                  Back to Sign In
+                </button>
               </div>
             )}
           </form>
