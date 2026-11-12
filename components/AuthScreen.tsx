@@ -240,18 +240,7 @@ export default function AuthScreen({ onGuardLogin }: { onGuardLogin?: () => void
 
             {view !== 'forgot' && (
               <div>
-                <div className="flex justify-between items-center mb-1 ml-1">
-                  <label className="block text-xs font-bold text-gray-700">Password</label>
-                  {view === 'login' && (
-                    <button 
-                      type="button" 
-                      onClick={() => { setView('forgot'); setError(""); setSuccess(""); }} 
-                      className="text-xs font-semibold text-blue-600 hover:text-blue-800 transition-colors"
-                    >
-                      Forgot?
-                    </button>
-                  )}
-                </div>
+                <label className="block text-xs font-bold text-gray-700 mb-1 ml-1">Password</label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
                     <Lock size={18} />
