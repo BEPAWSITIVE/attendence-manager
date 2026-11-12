@@ -1,20 +1,14 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
-import { Html5Qrcode } from "html5-qrcode";
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { supabase, AttendanceRecord, Employee } from "@/lib/supabase";
 import { localdb } from "@/lib/localdb";
 import { CheckCircle2, AlertCircle, X, Truck, Package, Search, ChevronRight, Loader2, Sparkles, Camera, Flashlight, FlashlightOff, WifiOff, ClipboardList, RefreshCw, Clock, Pencil } from "lucide-react";
 import { syncOfflineDataBackup, updateCachedEmployee, updateCachedAttendance } from "@/lib/offlineBackup";
+import { getCachedEmployees, getCachedEmployeeById } from "@/lib/employeeCache";
 
 const getCachedProfile = (id: string): Employee | null => {
-  try {
-    const cached = localStorage.getItem('cached_employees');
-    if (cached) {
-      const list: Employee[] = JSON.parse(cached);
-      return list.find((e: any) => e.empId === id) || null;
-    }
-  } catch (e) {}
-  return null;
+  return getCachedEmployeeById(id);
 };
 
 const isEntryTimeEditAllowed = (empId: string): boolean => {
@@ -77,10 +71,23 @@ const getCombinedRecords = async (id: string, date: string): Promise<any[]> => {
   return merged;
 };
 
+let sharedAudioContext: AudioContext | null = null;
+
+const getAudioContext = (): AudioContext => {
+  if (!sharedAudioContext) {
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    sharedAudioContext = new AudioContext();
+  }
+  const ctx = sharedAudioContext!;
+  if (ctx.state === 'suspended') {
+    ctx.resume().catch(() => {});
+  }
+  return ctx;
+};
+
 const playSuccessSound = () => {
   try {
-    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-    const ctx = new AudioContext();
+    const ctx = getAudioContext();
     const osc = ctx.createOscillator();
     const gainNode = ctx.createGain();
     
@@ -95,9 +102,6 @@ const playSuccessSound = () => {
     osc.connect(gainNode);
     gainNode.connect(ctx.destination);
     
-    if (ctx.state === 'suspended') {
-      ctx.resume().catch(() => {});
-    }
     osc.start();
     osc.stop(ctx.currentTime + 0.5);
   } catch (err) {
@@ -107,8 +111,7 @@ const playSuccessSound = () => {
 
 const playWarningSound = () => {
   try {
-    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-    const ctx = new AudioContext();
+    const ctx = getAudioContext();
     const osc = ctx.createOscillator();
     const gainNode = ctx.createGain();
     
@@ -123,9 +126,6 @@ const playWarningSound = () => {
     osc.connect(gainNode);
     gainNode.connect(ctx.destination);
     
-    if (ctx.state === 'suspended') {
-      ctx.resume().catch(() => {});
-    }
     osc.start();
     osc.stop(ctx.currentTime + 0.35);
   } catch (err) {}
@@ -141,6 +141,7 @@ export default function ScannerTab() {
   // Today's Attendance Modal States
   const [showTodayModal, setShowTodayModal] = useState(false);
   const [todayRecords, setTodayRecords] = useState<AttendanceRecord[]>([]);
+  const todayRecordsRef = useRef<AttendanceRecord[]>([]);
   const [todayFilter, setTodayFilter] = useState<'all' | 'in' | 'out'>('all');
   const [todaySearch, setTodaySearch] = useState("");
   const [isLoadingToday, setIsLoadingToday] = useState(false);
@@ -150,14 +151,20 @@ export default function ScannerTab() {
   const [newInTimeValue, setNewInTimeValue] = useState("");
   const [isSavingInTime, setIsSavingInTime] = useState(false);
 
+  const updateTodayRecord = (record: AttendanceRecord) => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const list = todayRecordsRef.current.filter(r => r.date === todayStr && r.recordId !== record.recordId);
+    if (record.date === todayStr) list.push(record);
+    list.sort((a, b) => (b.inTimestamp || 0) - (a.inTimestamp || 0));
+    todayRecordsRef.current = list;
+    setTodayRecords(list);
+    window.dispatchEvent(new CustomEvent('ams_today_count_changed', { detail: { count: list.length } }));
+  };
+
   const updateOfflineState = () => {
     if (typeof window === 'undefined') return;
     setIsOffline(!navigator.onLine);
-    try {
-      const raw = localStorage.getItem('cached_employees');
-      const list = raw ? JSON.parse(raw) : [];
-      setCachedCount(Array.isArray(list) ? list.length : 0);
-    } catch(e) {}
+    setCachedCount(getCachedEmployees().length);
   };
 
   const fetchTodayRecords = async () => {
@@ -174,11 +181,6 @@ export default function ScannerTab() {
           .order('inTimestamp', { ascending: false });
         if (!error && data) list = data;
 
-        // Background update of cached employees so latest permission toggles are available
-        const { data: emps } = await supabase.from('employees').select('*');
-        if (emps && Array.isArray(emps)) {
-          localStorage.setItem('cached_employees', JSON.stringify(emps));
-        }
       } catch (e) {
         console.warn("Could not fetch today records online:", e);
       }
@@ -207,6 +209,7 @@ export default function ScannerTab() {
     } catch (e) {}
 
     list.sort((a, b) => (b.inTimestamp || 0) - (a.inTimestamp || 0));
+    todayRecordsRef.current = list;
     setTodayRecords(list);
     setIsLoadingToday(false);
 
@@ -216,7 +219,7 @@ export default function ScannerTab() {
 
   const handleOpenTodayModal = async () => {
     if (scannerRef.current) {
-      try { scannerRef.current.pause(); } catch(e) {}
+      try { scannerRef.current.pause(true); } catch(e) {}
     }
     setShowTodayModal(true);
     await fetchTodayRecords();
@@ -319,7 +322,7 @@ export default function ScannerTab() {
       }
 
       updateCachedAttendance(updatedRecord);
-      setTodayRecords(prev => prev.map(rec => rec.recordId === updatedRecord.recordId ? updatedRecord : rec));
+      updateTodayRecord(updatedRecord);
       
       playSuccessSound();
       setEditingInTimeRecord(null);
@@ -391,13 +394,34 @@ export default function ScannerTab() {
   const startScanner = async () => {
     if (isScanning || scannerRef.current) return;
     try {
-      const html5QrCode = new Html5Qrcode("reader");
+      const html5QrCode = new Html5Qrcode("reader", {
+        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+        verbose: false
+      });
       scannerRef.current = html5QrCode;
+      const scanConfig = {
+        fps: 10,
+        qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+          const size = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.85);
+          return { width: size, height: size };
+        },
+        aspectRatio: 1.0,
+        disableFlip: true
+      };
       
       try {
         await html5QrCode.start(
           { facingMode: "environment" },
-          { fps: 10 },
+          {
+            ...scanConfig,
+            videoConstraints: {
+              facingMode: "environment",
+              width: { ideal: 640 },
+              height: { ideal: 640 },
+              aspectRatio: 1.0
+            }
+          },
           onScanSuccess,
           undefined
         );
@@ -415,7 +439,15 @@ export default function ScannerTab() {
 
           await html5QrCode.start(
             backCam.id,
-            { fps: 10 },
+            {
+              ...scanConfig,
+              videoConstraints: {
+                deviceId: { exact: backCam.id },
+                width: { ideal: 640 },
+                height: { ideal: 640 },
+                aspectRatio: 1.0
+              }
+            },
             onScanSuccess,
             undefined
           );
@@ -469,7 +501,7 @@ export default function ScannerTab() {
       if (!empId) throw new Error("Invalid format");
 
       if (scannerRef.current) {
-        try { scannerRef.current.pause(); } catch(e) {}
+        try { scannerRef.current.pause(true); } catch(e) {}
       }
 
       const today = new Date();
@@ -481,7 +513,15 @@ export default function ScannerTab() {
       
       if (navigator.onLine) {
         try {
-          const { data: profile } = await supabase.from('employees').select('*').eq('empId', empId).single();
+          const [{ data: profile }, { data: existing }] = await Promise.all([
+            supabase.from('employees').select('*').eq('empId', empId).single(),
+            supabase
+              .from('attendance')
+              .select('*')
+              .eq('date', dateStr)
+              .eq('empId', empId)
+              .order('inTimestamp', { ascending: true })
+          ]);
           if (profile) {
             empData = profile;
             updateCachedEmployee(profile);
@@ -489,13 +529,6 @@ export default function ScannerTab() {
             empData = getCachedProfile(empId);
           }
 
-          const { data: existing } = await supabase
-            .from('attendance')
-            .select('*')
-            .eq('date', dateStr)
-            .eq('empId', empId)
-            .order('inTimestamp', { ascending: true });
-          
           const localQueue = await localdb.syncQueue.where({ empId: empId, date: dateStr }).toArray();
           const combined = [...(existing || []), ...localQueue];
           combined.sort((a, b) => (a.inTimestamp || 0) - (b.inTimestamp || 0));
@@ -602,6 +635,7 @@ export default function ScannerTab() {
           await localdb.syncQueue.put(updatedRecord);
         }
         updateCachedAttendance(updatedRecord as any);
+        updateTodayRecord(updatedRecord as AttendanceRecord);
         
         playSuccessSound();
         setScanResult({ success: true, msg: `${emp.name} Checked OUT at ${timeStr}` + (navigator.onLine ? '' : ' (Offline)') });
@@ -651,6 +685,7 @@ export default function ScannerTab() {
           await localdb.syncQueue.put(newRecord);
         }
         updateCachedAttendance(newRecord as any);
+        updateTodayRecord(newRecord as AttendanceRecord);
         
         playSuccessSound();
         setScanResult({ success: true, msg: `${emp.name} Checked IN at ${timeStr}` + (navigator.onLine ? '' : ' (Offline)') });
@@ -661,8 +696,7 @@ export default function ScannerTab() {
         if (scannerRef.current) {
           try { scannerRef.current.resume(); } catch(e) {}
         }
-        fetchTodayRecords();
-      }, 2500);
+      }, 1500);
 
     } catch (err) {
       console.error(err);
@@ -706,6 +740,7 @@ export default function ScannerTab() {
         await localdb.syncQueue.put(newRecord);
       }
       updateCachedAttendance(newRecord as any);
+      updateTodayRecord(newRecord as AttendanceRecord);
       playSuccessSound();
       setScanResult({ success: true, isVehicle: true, msg: `Vehicle ${profile.name} Dispatched by ${driverName}` + (navigator.onLine ? '' : ' (Offline)') });
     } else {
@@ -733,6 +768,7 @@ export default function ScannerTab() {
         await localdb.syncQueue.put(updatedRecord);
       }
       updateCachedAttendance(updatedRecord as any);
+      updateTodayRecord(updatedRecord as AttendanceRecord);
       playSuccessSound();
       setScanResult({ success: true, isVehicle: true, msg: `Vehicle ${profile.name} Returned. ${consumed} units used.` + (navigator.onLine ? '' : ' (Offline)') });
     }
@@ -764,15 +800,12 @@ export default function ScannerTab() {
         const { data } = await supabase.from('employees').select('*').or(`phone.ilike.%${query}%,name.ilike.%${query}%`).limit(15);
         if (data) results = data;
       } else {
-        const cached = localStorage.getItem('cached_employees');
-        if (cached) {
-          const emps: Employee[] = JSON.parse(cached);
-          const lowerQuery = query.toLowerCase();
-          results = emps.filter(e => 
-            (e.phone && e.phone.includes(query)) || 
-            (e.name && e.name.toLowerCase().includes(lowerQuery))
-          ).slice(0, 15);
-        }
+        const emps = getCachedEmployees();
+        const lowerQuery = query.toLowerCase();
+        results = emps.filter(e =>
+          (e.phone && e.phone.includes(query)) ||
+          (e.name && e.name.toLowerCase().includes(lowerQuery))
+        ).slice(0, 15);
       }
       setSearchResults(results);
       setIsSearching(false);
@@ -973,6 +1006,7 @@ export default function ScannerTab() {
       await localdb.syncQueue.put(updatedRecord);
     }
     updateCachedAttendance(updatedRecord as any);
+    updateTodayRecord(updatedRecord as AttendanceRecord);
     
     playSuccessSound();
     setScanResult({ success: true, msg: `Parcel picked up by ${pickerName}` + (navigator.onLine ? '' : ' (Offline)') });
@@ -990,17 +1024,6 @@ export default function ScannerTab() {
   return (
     <div className="w-full h-full flex flex-col relative bg-transparent px-6 justify-center pb-24">
       
-      {/* Background decorations for empty state */}
-      <div className="fixed bottom-32 -left-6 opacity-80 pointer-events-none z-0">
-        <svg width="120" height="150" viewBox="0 0 100 150" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M10 150C10 100 40 70 80 50" stroke="#34D399" strokeWidth="4" strokeLinecap="round" />
-          <path d="M40 100C30 80 15 70 0 70C15 90 20 100 40 100Z" fill="#34D399" />
-          <path d="M60 70C50 50 35 40 20 40C35 60 40 70 60 70Z" fill="#34D399" />
-          <path d="M80 50C70 30 55 20 40 20C55 40 60 50 80 50Z" fill="#10B981" />
-        </svg>
-      </div>
-      <div className="fixed bottom-40 -left-4 w-20 h-12 bg-blue-100 rounded-full opacity-60 mix-blend-multiply blur-sm z-0"></div>
-
       {/* Embedded Square Camera Viewport */}
       <div className="relative w-full aspect-square bg-gray-100 rounded-[32px] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)] border-[6px] border-[#EAF3FF] z-10 mb-8 mt-4">
         
@@ -1008,14 +1031,14 @@ export default function ScannerTab() {
         
         {/* Offline Ready Badge on Camera View */}
         {isOffline && (
-          <div className="absolute top-4 left-4 z-20 bg-amber-500/90 text-white text-[10px] font-extrabold px-2.5 py-1 rounded-full shadow-md backdrop-blur-xs flex items-center animate-fade-in">
+          <div className="absolute top-4 left-4 z-20 bg-amber-500/90 text-white text-[10px] font-extrabold px-2.5 py-1 rounded-full shadow-md flex items-center animate-fade-in">
             <WifiOff size={11} className="mr-1" />
             <span>Offline Ready ({cachedCount})</span>
           </div>
         )}
 
         {/* Cyan Brackets Overlay */}
-        <div className="absolute inset-0 pointer-events-none p-6">
+        <div className="absolute inset-[7.5%] pointer-events-none">
           <div className="w-full h-full relative">
             <div className="absolute top-0 left-0 w-12 h-12 border-t-[4px] border-l-[4px] border-[#38bdf8] rounded-tl-3xl"></div>
             <div className="absolute top-0 right-0 w-12 h-12 border-t-[4px] border-r-[4px] border-[#38bdf8] rounded-tr-3xl"></div>
@@ -1029,7 +1052,7 @@ export default function ScannerTab() {
           <button
             type="button"
             onClick={toggleTorch}
-            className={`absolute top-4 right-4 z-20 px-3 py-2 rounded-2xl shadow-lg backdrop-blur-md transition-all active:scale-95 flex items-center space-x-1.5 cursor-pointer ${
+            className={`absolute top-4 right-4 z-20 px-3 py-2 rounded-2xl shadow-lg transition-all active:scale-95 flex items-center space-x-1.5 cursor-pointer ${
               isTorchOn 
                 ? 'bg-amber-400 text-amber-950 shadow-amber-400/50 ring-2 ring-amber-300' 
                 : 'bg-black/50 hover:bg-black/70 text-white border border-white/20'
@@ -1053,7 +1076,7 @@ export default function ScannerTab() {
       </div>
 
       <button 
-        onClick={() => { setManualModalOpen(true); if (scannerRef.current) { try { scannerRef.current.pause(); } catch(e) {} } }}
+        onClick={() => { setManualModalOpen(true); if (scannerRef.current) { try { scannerRef.current.pause(true); } catch(e) {} } }}
         className="w-full bg-white border border-gray-100 py-3.5 px-4 rounded-[20px] flex items-center justify-between shadow-sm z-10 hover:bg-gray-50 active:scale-95 transition-transform"
       >
         <div className="flex items-center">
@@ -1086,7 +1109,7 @@ export default function ScannerTab() {
 
             {/* Manual Search Modal */}
       {manualModalOpen && (
-        <div className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-sm flex items-start pt-[10vh] justify-center p-4 animate-fade-in">
+        <div className="fixed inset-0 z-[120] bg-black/80 flex items-start pt-[10vh] justify-center p-4 animate-fade-in">
           <div className="bg-white w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl relative flex flex-col max-h-[80vh]">
             <div className="bg-gray-50 p-4 border-b border-gray-100 flex justify-between items-center shrink-0">
               <h3 className="font-bold text-gray-800">Manual Entry</h3>
@@ -1157,7 +1180,7 @@ export default function ScannerTab() {
 
       {/* Vehicle Action Modal */}
       {vehicleModal && (
-        <div className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+        <div className="fixed inset-0 z-[120] bg-black/80 flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-white w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl relative">
             <div className="bg-amber-500 p-6 text-white text-center">
               <Truck size={40} className="mx-auto mb-2 opacity-90" />
@@ -1264,7 +1287,7 @@ export default function ScannerTab() {
         });
 
         return (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 animate-fade-in">
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-3 sm:p-4 animate-fade-in">
             <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[88vh]">
               {/* Header */}
               <div className="p-4 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50 flex items-center justify-between">
@@ -1486,12 +1509,12 @@ export default function ScannerTab() {
 
       {/* Guard Edit Entry Time Modal */}
       {editingInTimeRecord && (
-        <div className="fixed inset-0 z-[150] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+        <div className="fixed inset-0 z-[150] bg-black/75 flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-white w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl relative border border-gray-100 flex flex-col">
             {/* Header */}
             <div className="bg-gradient-to-r from-emerald-600 to-teal-700 p-4 text-white flex items-center justify-between">
               <div className="flex items-center space-x-3">
-                <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shadow-inner">
+                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center text-white shadow-inner">
                   <Clock size={20} />
                 </div>
                 <div>
@@ -1586,7 +1609,7 @@ export default function ScannerTab() {
 
       {/* Parcel Action Modal */}
       {parcelModal && (
-        <div className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+        <div className="fixed inset-0 z-[120] bg-black/80 flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-white w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl relative">
             <div className="bg-purple-500 p-6 text-white text-center">
               <Package size={40} className="mx-auto mb-2 opacity-90" />

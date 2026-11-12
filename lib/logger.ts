@@ -12,6 +12,41 @@ export interface LogEntry {
 
 const STORAGE_KEY = 'ams_system_logs';
 const MAX_LOGS = 150;
+const FLUSH_DELAY_MS = 5000;
+let memoryLogs: LogEntry[] | null = null;
+let logsDirty = false;
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+let pagehideRegistered = false;
+
+function flushLogs() {
+  if (flushTimer !== null) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  if (!logsDirty || memoryLogs === null) return;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(memoryLogs));
+    logsDirty = false;
+  } catch {
+    // Keep entries in memory if storage is unavailable or full.
+  }
+}
+
+function getMemoryLogs(): LogEntry[] {
+  if (!pagehideRegistered) {
+    window.addEventListener('pagehide', flushLogs);
+    pagehideRegistered = true;
+  }
+  if (memoryLogs === null) {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      memoryLogs = (raw ? JSON.parse(raw) : []).slice(0, MAX_LOGS);
+    } catch {
+      memoryLogs = [];
+    }
+  }
+  return memoryLogs!;
+}
 
 function formatTime(d: Date): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
@@ -24,12 +59,7 @@ function formatDate(d: Date): string {
 export const appLogger = {
   getLogs(): LogEntry[] {
     if (typeof window === 'undefined') return [];
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : [];
-    } catch (e) {
-      return [];
-    }
+    return [...getMemoryLogs()];
   },
 
   add(level: 'error' | 'warn' | 'info', source: string, message: string, details?: any) {
@@ -66,9 +96,11 @@ export const appLogger = {
         stack: stackStr || undefined
       };
 
-      const existing = this.getLogs();
-      const updated = [newEntry, ...existing].slice(0, MAX_LOGS);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      memoryLogs = [newEntry, ...getMemoryLogs()].slice(0, MAX_LOGS);
+      logsDirty = true;
+      if (flushTimer === null) {
+        flushTimer = setTimeout(flushLogs, FLUSH_DELAY_MS);
+      }
 
       window.dispatchEvent(new CustomEvent('ams_log_added', { detail: newEntry }));
     } catch (err) {
@@ -90,6 +122,12 @@ export const appLogger = {
 
   clear() {
     if (typeof window === 'undefined') return;
+    memoryLogs = [];
+    logsDirty = false;
+    if (flushTimer !== null) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
     try {
       localStorage.removeItem(STORAGE_KEY);
       window.dispatchEvent(new CustomEvent('ams_log_cleared'));
