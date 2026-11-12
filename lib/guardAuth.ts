@@ -18,6 +18,23 @@ export interface GuardAccount {
 const STORAGE_KEY = 'ams_guard_accounts';
 
 /**
+ * Hash password securely using SHA-256 via Web Crypto API
+ */
+export async function hashPassword(plain: string): Promise<string> {
+  if (!plain) return '';
+  try {
+    if (typeof crypto !== 'undefined' && crypto.subtle) {
+      const enc = new TextEncoder().encode(plain);
+      const hashBuf = await crypto.subtle.digest('SHA-256', enc);
+      return Array.from(new Uint8Array(hashBuf))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+    }
+  } catch (e) {}
+  return plain;
+}
+
+/**
  * Pre-seeded default guard accounts if none exist in local storage or cloud
  */
 const DEFAULT_GUARDS: GuardAccount[] = [
@@ -173,7 +190,13 @@ export async function getGuardAccounts(): Promise<GuardAccount[]> {
  */
 export async function saveGuardAccount(guard: GuardAccount): Promise<{ success: boolean; error?: string }> {
   try {
-    const emp = guardToEmployee(guard);
+    // Hash password before persisting if not already a 64-character SHA-256 hash
+    let securePass = guard.password;
+    if (securePass && !/^[0-9a-f]{64}$/i.test(securePass)) {
+      securePass = await hashPassword(securePass);
+    }
+    const guardRecord: GuardAccount = { ...guard, password: securePass };
+    const emp = guardToEmployee(guardRecord);
 
     // 1. Save to Supabase if online
     if (navigator.onLine) {
@@ -185,28 +208,15 @@ export async function saveGuardAccount(guard: GuardAccount): Promise<{ success: 
       await localdb.employeeQueue.put(emp);
     }
 
-    // 2. Update local storage cache
+    // 2. Update local storage cache (specifically in ams_guard_accounts)
     const current = await getGuardAccounts();
-    const idx = current.findIndex(g => g.id === guard.id || g.loginId.toLowerCase() === guard.loginId.toLowerCase());
+    const idx = current.findIndex(g => g.id === guardRecord.id || g.loginId.toLowerCase() === guardRecord.loginId.toLowerCase());
     if (idx !== -1) {
-      current[idx] = guard;
+      current[idx] = guardRecord;
     } else {
-      current.unshift(guard);
+      current.unshift(guardRecord);
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
-
-    // Also update cached_employees so offline backup has it
-    try {
-      const raw = localStorage.getItem('cached_employees');
-      let emps: Employee[] = raw ? JSON.parse(raw) : [];
-      const eIdx = emps.findIndex(e => e.empId === emp.empId);
-      if (eIdx !== -1) {
-        emps[eIdx] = emp;
-      } else {
-        emps.unshift(emp);
-      }
-      localStorage.setItem('cached_employees', JSON.stringify(emps));
-    } catch (e) {}
 
     appLogger.info('GuardAuth', `Saved ${guard.type} guard login '${guard.loginId}' (${guard.name})`);
     if (typeof window !== 'undefined') {
@@ -282,8 +292,10 @@ export async function verifyGuardLogin(
     return { success: false, error: "This guard account has been suspended. Please contact Admin." };
   }
 
-  // Password verification
-  if (match.password !== pass) {
+  // Password verification (supports both legacy plaintext and SHA-256 hashed passwords)
+  const hashedPass = await hashPassword(pass);
+  const passwordMatches = match.password === pass || match.password === hashedPass;
+  if (!passwordMatches) {
     return { success: false, error: "Incorrect password. Please try again." };
   }
 

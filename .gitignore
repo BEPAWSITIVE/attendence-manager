@@ -31,10 +31,11 @@ desktop.ini
 *.log
 __pycache__/
 *.pyc
-node_modules
-
+# Node / Next.js
+node_modules/
 .next/
-.env
-.env*.local
 next-env.d.ts
 *.tsbuildinfo
+package-lock.json
+.env
+.env*.local

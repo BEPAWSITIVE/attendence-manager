@@ -1,11 +1,49 @@
 import { NextResponse } from 'next/server';
 
+// In-memory sliding window rate limiter (per IP)
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const MAX_REQUESTS = 30; // Max 30 requests per minute per IP
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  if (rateLimitMap.size > 1000) {
+    rateLimitMap.forEach((v, k) => {
+      if (now > v.resetTime) rateLimitMap.delete(k);
+    });
+  }
+  const entry = rateLimitMap.get(ip);
+  if (!entry || now > entry.resetTime) {
+    rateLimitMap.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
+    return false;
+  }
+  if (entry.count >= MAX_REQUESTS) {
+    return true;
+  }
+  entry.count += 1;
+  return false;
+}
+
 export async function POST(req: Request) {
   try {
+    // 1. IP Rate Limiting
+    const forwarded = req.headers.get('x-forwarded-for');
+    const ip = forwarded ? forwarded.split(',')[0].trim() : '127.0.0.1';
+    if (checkRateLimit(ip)) {
+      return NextResponse.json({ error: 'Rate limit exceeded. Please wait a moment before trying again.' }, { status: 429 });
+    }
+
     const { images } = await req.json();
     
-    if (!images || images.length === 0) {
-      return NextResponse.json({ error: 'No images provided' }, { status: 400 });
+    // 2. Payload Validation
+    if (!images || !Array.isArray(images) || images.length === 0 || images.length > 5) {
+      return NextResponse.json({ error: 'Invalid images payload. Maximum 5 images allowed per request.' }, { status: 400 });
+    }
+
+    for (const img of images) {
+      if (typeof img !== 'string' || img.length > 10 * 1024 * 1024) {
+        return NextResponse.json({ error: 'Image payload exceeds the maximum limit (10MB).' }, { status: 413 });
+      }
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
@@ -13,7 +51,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'GEMINI_API_KEY is missing. Add it to Vercel env vars.' }, { status: 500 });
     }
 
-    const parts = images.map((base64Data: string) => {
+    const parts: any[] = images.map((base64Data: string) => {
       const b64 = base64Data.replace(/^data:image\/\w+;base64,/, "");
       return {
         inlineData: {
@@ -57,7 +95,11 @@ If it is completely unreadable or neither:
       return NextResponse.json({ error: data.error.message }, { status: 500 });
     }
 
-    const textOutput = data.candidates[0].content.parts[0].text;
+    const textOutput = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!textOutput) {
+      return NextResponse.json({ type: 'unknown' });
+    }
+
     const jsonStr = textOutput.replace(/```json/g, '').replace(/```/g, '').trim();
     const result = JSON.parse(jsonStr);
 
@@ -65,6 +107,6 @@ If it is completely unreadable or neither:
 
   } catch (err: any) {
     console.error("Analyze error:", err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err.message || 'Failed to analyze document' }, { status: 500 });
   }
 }
