@@ -2,21 +2,59 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export const maxDuration = 30; // 30 seconds max for AI
 
+// In-memory sliding window rate limiter (per IP)
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const MAX_REQUESTS = 20; // Max 20 batch requests per minute per IP
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  if (rateLimitMap.size > 1000) {
+    rateLimitMap.forEach((v, k) => {
+      if (now > v.resetTime) rateLimitMap.delete(k);
+    });
+  }
+  const entry = rateLimitMap.get(ip);
+  if (!entry || now > entry.resetTime) {
+    rateLimitMap.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
+    return false;
+  }
+  if (entry.count >= MAX_REQUESTS) {
+    return true;
+  }
+  entry.count += 1;
+  return false;
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { images, category } = await req.json();
-    const apiKey = process.env.GEMINI_API_KEY;
+    // 1. IP Rate Limiting
+    const forwarded = req.headers.get('x-forwarded-for');
+    const ip = forwarded ? forwarded.split(',')[0].trim() : '127.0.0.1';
+    if (checkRateLimit(ip)) {
+      return NextResponse.json({ error: 'Rate limit exceeded. Please wait a moment before trying again.' }, { status: 429 });
+    }
 
+    const { images, category } = await req.json();
+
+    // 2. Payload Validation
+    if (!images || !Array.isArray(images) || images.length === 0 || images.length > 5) {
+      return NextResponse.json({ error: 'Please provide between 1 and 5 images.' }, { status: 400 });
+    }
+
+    for (const img of images) {
+      if (typeof img !== 'string' || img.length > 10 * 1024 * 1024) {
+        return NextResponse.json({ error: 'Image payload exceeds the maximum limit (10MB).' }, { status: 413 });
+      }
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return NextResponse.json({ error: 'AI is not configured. Missing API Key.' }, { status: 500 });
     }
 
-    if (!images || images.length === 0) {
-      return NextResponse.json({ error: 'No images provided.' }, { status: 400 });
-    }
-
     // Convert base64 data URIs to raw base64
-    const parts = images.map((img: string) => {
+    const parts: any[] = images.map((img: string) => {
       const base64Data = img.split(',')[1] || img;
       return {
         inlineData: {
@@ -65,7 +103,7 @@ export async function POST(req: NextRequest) {
     let text = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!text) {
-      return NextResponse.json({ error: 'AI returned an empty response.' }, { status: 500 });
+      return NextResponse.json({ records: [] });
     }
 
     // Clean up possible markdown wrappers
@@ -75,6 +113,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ records: parsed });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err.message || 'Batch analysis failed' }, { status: 500 });
   }
 }

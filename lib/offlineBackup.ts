@@ -52,10 +52,12 @@ export async function syncOfflineDataBackup(): Promise<{
   try {
     const todayStr = new Date().toISOString().split('T')[0];
 
-    // 1. Fetch ALL Employees / Profiles (Staff, Visitors, Vehicles, Volunteers)
+    // 1. Fetch ALL Personnel Profiles (Staff, Visitors, Vehicles, Volunteers - excluding Guard credential accounts)
     const { data: employees, error: empErr } = await supabase
       .from('employees')
       .select('*')
+      .neq('category', 'Guard')
+      .neq('category', 'GuestGuard')
       .order('createdAt', { ascending: false });
 
     if (empErr) throw empErr;

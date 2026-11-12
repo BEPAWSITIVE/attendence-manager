@@ -108,7 +108,13 @@ export default function EmployeesTab({
   async function fetchEmployees() {
     let allEmps: Employee[] = [];
     if (navigator.onLine) {
-      const { data, error } = await supabase.from('employees').select('*').order('createdAt', { ascending: false });
+      // Exclude Guard and GuestGuard credential accounts from general staff registry queries
+      const { data, error } = await supabase
+        .from('employees')
+        .select('*')
+        .neq('category', 'Guard')
+        .neq('category', 'GuestGuard')
+        .order('createdAt', { ascending: false });
       if (!error && data) {
         allEmps = data;
         localStorage.setItem('cached_employees', JSON.stringify(data));
