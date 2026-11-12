@@ -238,16 +238,24 @@ export default function Home() {
     
     window.addEventListener('ai_scan_result', handleAiScan);
 
-    // Periodic backup sync every 60 seconds when online
-    const interval = setInterval(() => {
-      if (typeof window !== 'undefined' && navigator.onLine) {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
         triggerBackup();
       }
-    }, 60000);
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Periodic backup every five minutes while visible and online.
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        triggerBackup();
+      }
+    }, 300000);
 
     return () => {
       subscription.unsubscribe();
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('ams_offline_backup_completed', handleBackupCompleted);
@@ -321,7 +329,7 @@ export default function Home() {
           )}
 
           {isOffline && (
-            <div className="flex items-center text-[10px] font-extrabold text-amber-800 bg-amber-100/90 border border-amber-300 px-2 py-1 rounded-full shadow-xs animate-pulse">
+            <div className="flex items-center text-[10px] font-extrabold text-amber-800 bg-amber-100/90 border border-amber-300 px-2 py-1 rounded-full shadow-xs">
               <WifiOff size={11} className="mr-1 text-amber-600 shrink-0" />
               <span>Offline ({offlineStats.employeeCount})</span>
             </div>
