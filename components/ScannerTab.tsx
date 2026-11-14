@@ -6,6 +6,7 @@ import { localdb } from "@/lib/localdb";
 import { CheckCircle2, AlertCircle, X, Truck, Package, Search, ChevronRight, Loader2, Sparkles, Camera, Flashlight, FlashlightOff, WifiOff, ClipboardList, RefreshCw, Clock, Pencil } from "lucide-react";
 import { syncOfflineDataBackup, updateCachedEmployee, updateCachedAttendance } from "@/lib/offlineBackup";
 import { getCachedEmployees, getCachedEmployeeById } from "@/lib/employeeCache";
+import { extractEmpIdFromScan } from "@/lib/qrUtils";
 
 const getCachedProfile = (id: string): Employee | null => {
   return getCachedEmployeeById(id);
@@ -496,8 +497,7 @@ export default function ScannerTab() {
 
   const onScanSuccess = async (decodedText: string) => {
     try {
-      const data = JSON.parse(decodedText);
-      const empId = data.empId;
+      const empId = extractEmpIdFromScan(decodedText);
       if (!empId) throw new Error("Invalid format");
 
       if (scannerRef.current) {

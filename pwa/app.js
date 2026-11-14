@@ -275,6 +275,19 @@ async function processScannedEmployee(scannedData) {
     } catch (e) {
       console.warn('QR parse as JSON failed, using raw string');
     }
+  } else if (scannedData.startsWith('http://') || scannedData.startsWith('https://')) {
+    try {
+      const url = new URL(scannedData);
+      const queryId = url.searchParams.get('id') || url.searchParams.get('empId');
+      if (queryId) {
+        empId = queryId.trim();
+      } else {
+        const segs = url.pathname.split('/').filter(Boolean);
+        if (segs.length > 0) {
+          empId = decodeURIComponent(segs[segs.length - 1]).trim();
+        }
+      }
+    } catch (e) {}
   } else if (scannedData.startsWith('EMP:')) {
     empId = scannedData.replace('EMP:', '').trim();
   }
