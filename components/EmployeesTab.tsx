@@ -19,9 +19,22 @@ import {
   Pencil,
   Trash2,
   Search,
-  Clock
+  Clock,
+  Copy,
+  Check,
+  ExternalLink,
+  ShieldCheck,
+  FolderArchive,
+  Globe
 } from "lucide-react";
 import { appLogger } from "@/lib/logger";
+import { 
+  getStaffVerifyUrl, 
+  getVerificationBaseUrl, 
+  generateCardCanvas, 
+  exportAllQrsAsZip, 
+  triggerBlobDownload 
+} from "@/lib/qrUtils";
 
 export default function EmployeesTab({ 
   role = "admin", 
@@ -60,6 +73,14 @@ export default function EmployeesTab({
   // Search & Category Filter States
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("All");
+
+  // Dual QR Pass & Bulk ZIP Export States
+  const [activePassTab, setActivePassTab] = useState<'identity' | 'attendance'>('identity');
+  const [copiedPassUrl, setCopiedPassUrl] = useState(false);
+  const [showZipModal, setShowZipModal] = useState(false);
+  const [zipExportType, setZipExportType] = useState<'identity' | 'attendance' | 'both'>('identity');
+  const [isExportingZip, setIsExportingZip] = useState(false);
+  const [zipProgress, setZipProgress] = useState({ current: 0, total: 0, name: '' });
 
   // Edit Employee States
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
@@ -691,80 +712,29 @@ export default function EmployeesTab({
     fetchEmployees();
   }
 
-  // Draw a beautiful ID card
-  const generateCardCanvas = (qrCanvas: HTMLCanvasElement, emp: Employee): HTMLCanvasElement => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 600;
-    canvas.height = 800;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return qrCanvas;
-
-    // Background gradient
-    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    gradient.addColorStop(0, '#ffffff');
-    gradient.addColorStop(1, '#f0f7ff');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Header Banner
-    ctx.fillStyle = emp.category === 'Vehicle' ? '#f59e0b' : emp.category === 'Visitor' ? '#10b981' : emp.category === 'Volunteer' ? '#9333ea' : emp.category === 'Parcel' ? '#8b5cf6' : '#2563eb';
-    ctx.fillRect(0, 0, canvas.width, 140);
-    
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 44px sans-serif';
-    ctx.textAlign = 'center';
-    const bannerTitle = emp.category === 'Vehicle' ? 'VEHICLE PASS' : emp.category === 'Visitor' ? 'VISITOR PASS' : emp.category === 'Volunteer' ? 'VOLUNTEER PASS' : emp.category === 'Parcel' ? 'PARCEL TRACKER' : 'STAFF ID CARD';
-    ctx.fillText(bannerTitle, canvas.width / 2, 85);
-
-    // Card Body
-    ctx.fillStyle = '#ffffff';
-    ctx.shadowColor = 'rgba(0,0,0,0.1)';
-    ctx.shadowBlur = 20;
-    ctx.shadowOffsetY = 10;
-    ctx.roundRect(40, 180, 520, 580, 30);
-    ctx.fill();
-    ctx.shadowColor = 'transparent';
-
-    // QR Code
-    ctx.drawImage(qrCanvas, (canvas.width - 250) / 2, 220, 250, 250);
-
-    // Profile Details
-    ctx.fillStyle = '#1e293b';
-    ctx.font = 'bold 38px sans-serif';
-    ctx.fillText(emp.name.toUpperCase(), canvas.width / 2, 530);
-
-    ctx.fillStyle = '#64748b';
-    ctx.font = '24px sans-serif';
-    ctx.fillText(emp.department.toUpperCase(), canvas.width / 2, 570);
-
-    // Divider
-    ctx.strokeStyle = '#e2e8f0';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(100, 610);
-    ctx.lineTo(500, 610);
-    ctx.stroke();
-
-    // Footer Info
-    ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 28px monospace';
-    ctx.fillText(`ID: ${emp.empId}`, canvas.width / 2, 660);
-    
-    if (emp.category === 'Vehicle' && emp.vehicle_plate) {
-      ctx.fillStyle = '#0f172a';
-      ctx.font = 'bold 24px monospace';
-      ctx.fillText(`PLATE: ${emp.vehicle_plate}`, canvas.width / 2, 700);
-    } else if (emp.vehicle_plate) {
-      ctx.fillStyle = '#0f172a';
-      ctx.font = 'bold 24px monospace';
-      ctx.fillText(`ID NO: ${emp.vehicle_plate}`, canvas.width / 2, 700);
-    } else if (emp.phone) {
-      ctx.fillStyle = '#0f172a';
-      ctx.font = 'bold 24px monospace';
-      ctx.fillText(`PH: ${emp.phone}`, canvas.width / 2, 700);
+  const handleExportZip = async () => {
+    if (employees.length === 0) {
+      alert("No registered profiles found to export.");
+      return;
     }
-
-    return canvas;
+    setIsExportingZip(true);
+    setZipProgress({ current: 0, total: employees.length, name: 'Starting export...' });
+    try {
+      const blob = await exportAllQrsAsZip(employees, {
+        type: zipExportType,
+        onProgress: (current, total, name) => {
+          setZipProgress({ current, total, name });
+        }
+      });
+      const typeLabel = zipExportType === 'identity' ? 'Identity_Cards' : zipExportType === 'attendance' ? 'Attendance_Passes' : 'All_Passes';
+      triggerBlobDownload(blob, `Peepal_Farm_${typeLabel}.zip`);
+      setShowZipModal(false);
+    } catch (err: any) {
+      console.error("ZIP export failed:", err);
+      alert("Failed to generate ZIP archive: " + (err?.message || "Unknown error"));
+    } finally {
+      setIsExportingZip(false);
+    }
   };
 
   const getCategoryIcon = (cat?: string) => {
@@ -862,6 +832,18 @@ export default function EmployeesTab({
                 )}
               </div>
             </>
+          )}
+          {role === 'admin' && (
+            <button
+              type="button"
+              onClick={() => setShowZipModal(true)}
+              className="flex items-center px-2.5 sm:px-3 text-xs sm:text-sm font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 active:bg-indigo-200 border border-indigo-200/80 rounded-xl shadow-xs transition-colors h-9"
+              title="Download all QR identity cards in a ZIP folder for bulk printing"
+            >
+              <FolderArchive size={16} className="mr-1.5 text-indigo-600 shrink-0" />
+              <span className="hidden sm:inline">Bulk QRs ZIP</span>
+              <span className="sm:hidden">ZIP</span>
+            </button>
           )}
           <button 
             onClick={handleOpenForm}
@@ -1617,183 +1599,436 @@ export default function EmployeesTab({
         </div>
       )}
 
-      {/* QR Code Modal */}
-      {selectedEmployee && (
+      {/* Bulk ZIP Export Modal */}
+      {showZipModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl relative">
+          <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl p-6 relative">
             <button 
-              onClick={() => setSelectedEmployee(null)}
-              className="absolute top-4 right-4 p-2 bg-gray-100 text-gray-500 rounded-full hover:bg-gray-200 z-10"
+              onClick={() => !isExportingZip && setShowZipModal(false)}
+              disabled={isExportingZip}
+              className="absolute top-4 right-4 p-2 bg-gray-100 text-gray-500 rounded-full hover:bg-gray-200 transition-colors disabled:opacity-50"
             >
-              <X size={20} />
+              <X size={18} />
             </button>
-            
-            <div className="p-8 pb-6 flex flex-col items-center">
-              <div className={`w-full text-center py-2 mb-6 rounded-lg font-bold text-sm tracking-widest
-                ${selectedEmployee.category === 'Vehicle' ? 'bg-amber-100 text-amber-700' : 
-                  selectedEmployee.category === 'Visitor' ? 'bg-emerald-100 text-emerald-700' : 
-                  selectedEmployee.category === 'Volunteer' ? 'bg-purple-100 text-purple-700' : 
-                  selectedEmployee.category === 'Parcel' ? 'bg-purple-100 text-purple-700' : 
-                  'bg-blue-100 text-blue-700'}`}>
-                {selectedEmployee.category === 'Vehicle' ? 'VEHICLE PASS' : selectedEmployee.category === 'Visitor' ? 'VISITOR PASS' : selectedEmployee.category === 'Volunteer' ? 'VOLUNTEER PASS' : selectedEmployee.category === 'Parcel' ? 'PARCEL TRACKER' : 'STAFF PASS'}
+
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="p-2.5 rounded-2xl bg-indigo-100 text-indigo-700">
+                <FolderArchive size={24} />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-gray-800 text-base">Bulk QR Pass Download</h3>
+                <p className="text-xs text-gray-500 font-medium">Download all {employees.length} passes in a single ZIP</p>
+              </div>
+            </div>
+
+            <div className="space-y-4 mb-6 text-xs">
+              <div className="bg-indigo-50/70 border border-indigo-100 rounded-2xl p-3.5 text-indigo-950 leading-relaxed">
+                <p className="font-bold mb-1">📦 Ready for Bulk Printing</p>
+                <p className="text-indigo-800">
+                  Generates individual high-resolution PNG pass cards for all <b>{employees.length}</b> registered personnel and packages them into a clean ZIP folder.
+                </p>
               </div>
 
-              <div className="bg-white p-4 rounded-2xl shadow-inner border border-gray-100 mb-6 relative">
-                {/* Hidden canvas used to generate the final image */}
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-2">Select Card Type to Export</label>
+                <div className="space-y-2">
+                  <label className={`flex items-start p-3 rounded-xl border cursor-pointer transition-all ${
+                    zipExportType === 'identity' ? 'bg-emerald-50/80 border-emerald-300 ring-1 ring-emerald-300' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                  }`}>
+                    <input 
+                      type="radio" 
+                      name="zipType" 
+                      value="identity" 
+                      checked={zipExportType === 'identity'} 
+                      onChange={() => setZipExportType('identity')}
+                      disabled={isExportingZip}
+                      className="mt-0.5 mr-2.5 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <span className="font-bold text-gray-800 block text-xs">🪪 Identity Cards (Public URL QR - Recommended)</span>
+                      <span className="text-gray-500 text-[11px] mt-0.5 block">
+                        Stores verification URL. Smartphone camera scan redirects to verified identity page. Ideal for printing physical ID cards.
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className={`flex items-start p-3 rounded-xl border cursor-pointer transition-all ${
+                    zipExportType === 'attendance' ? 'bg-blue-50/80 border-blue-300 ring-1 ring-blue-300' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                  }`}>
+                    <input 
+                      type="radio" 
+                      name="zipType" 
+                      value="attendance" 
+                      checked={zipExportType === 'attendance'} 
+                      onChange={() => setZipExportType('attendance')}
+                      disabled={isExportingZip}
+                      className="mt-0.5 mr-2.5 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div>
+                      <span className="font-bold text-gray-800 block text-xs">⏱️ Gate Attendance Passes (Internal QR)</span>
+                      <span className="text-gray-500 text-[11px] mt-0.5 block">
+                        Stores raw ID format. For internal gate logging devices.
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className={`flex items-start p-3 rounded-xl border cursor-pointer transition-all ${
+                    zipExportType === 'both' ? 'bg-purple-50/80 border-purple-300 ring-1 ring-purple-300' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                  }`}>
+                    <input 
+                      type="radio" 
+                      name="zipType" 
+                      value="both" 
+                      checked={zipExportType === 'both'} 
+                      onChange={() => setZipExportType('both')}
+                      disabled={isExportingZip}
+                      className="mt-0.5 mr-2.5 text-purple-600 focus:ring-purple-500"
+                    />
+                    <div>
+                      <span className="font-bold text-gray-800 block text-xs">📁 Both Sets (Identity + Attendance Cards)</span>
+                      <span className="text-gray-500 text-[11px] mt-0.5 block">
+                        Includes both cards for each personnel in separate named files.
+                      </span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {isExportingZip && (
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2 animate-fade-in">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                    <span className="flex items-center">
+                      <Loader2 size={13} className="animate-spin mr-1.5 text-indigo-600" />
+                      Generating Cards...
+                    </span>
+                    <span>{zipProgress.current} / {zipProgress.total}</span>
+                  </div>
+                  <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                    <div 
+                      className="bg-indigo-600 h-full transition-all duration-200 rounded-full"
+                      style={{ width: `${zipProgress.total ? (zipProgress.current / zipProgress.total) * 100 : 0}%` }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-500 truncate">
+                    Processing: {zipProgress.name}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex space-x-2">
+              <button
+                type="button"
+                onClick={() => setShowZipModal(false)}
+                disabled={isExportingZip}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl font-bold text-xs transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExportZip}
+                disabled={isExportingZip || employees.length === 0}
+                className="flex-1 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white py-3 rounded-xl font-bold text-xs shadow-md transition-colors flex items-center justify-center disabled:opacity-50"
+              >
+                {isExportingZip ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin mr-1.5" />
+                    Packaging ZIP...
+                  </>
+                ) : (
+                  <>
+                    <Download size={14} className="mr-1.5" />
+                    Download ZIP
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QR Code Modal */}
+      {selectedEmployee && (() => {
+        const verifyUrl = getStaffVerifyUrl(selectedEmployee.empId);
+        const legacyPayload = JSON.stringify({ empId: selectedEmployee.empId });
+        const activeQrValue = activePassTab === 'identity' ? verifyUrl : legacyPayload;
+
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+            <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl relative">
+              <button 
+                onClick={() => setSelectedEmployee(null)}
+                className="absolute top-4 right-4 p-2 bg-gray-100 text-gray-500 rounded-full hover:bg-gray-200 z-10 transition-colors"
+              >
+                <X size={18} />
+              </button>
+              
+              <div className="p-6 pb-4 flex flex-col items-center">
+                {/* Category Banner Pill */}
+                <div className={`w-full text-center py-1.5 mb-4 rounded-lg font-bold text-xs tracking-widest uppercase
+                  ${selectedEmployee.category === 'Vehicle' ? 'bg-amber-100 text-amber-700' : 
+                    selectedEmployee.category === 'Visitor' ? 'bg-emerald-100 text-emerald-700' : 
+                    selectedEmployee.category === 'Volunteer' ? 'bg-purple-100 text-purple-700' : 
+                    selectedEmployee.category === 'Parcel' ? 'bg-purple-100 text-purple-700' : 
+                    'bg-blue-100 text-blue-700'}`}>
+                  {selectedEmployee.category === 'Vehicle' ? 'VEHICLE PASS' : selectedEmployee.category === 'Visitor' ? 'VISITOR PASS' : selectedEmployee.category === 'Volunteer' ? 'VOLUNTEER PASS' : selectedEmployee.category === 'Parcel' ? 'PARCEL TRACKER' : 'STAFF PASS'}
+                </div>
+
+                {/* Dual QR Type Selector Tabs */}
+                <div className="w-full grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-2xl mb-4 text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setActivePassTab('identity')}
+                    className={`py-2 px-2 rounded-xl transition-all flex items-center justify-center space-x-1.5 ${
+                      activePassTab === 'identity'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <ShieldCheck size={14} />
+                    <span>Identity QR (URL)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActivePassTab('attendance')}
+                    className={`py-2 px-2 rounded-xl transition-all flex items-center justify-center space-x-1.5 ${
+                      activePassTab === 'attendance'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Clock size={14} />
+                    <span>Gate QR (ID Only)</span>
+                  </button>
+                </div>
+
+                {/* Hidden canvases used for card generation */}
                 <div className="hidden">
                   <QRCodeCanvas 
-                    id="qr-canvas"
-                    value={JSON.stringify({ empId: selectedEmployee.empId })} 
-                    size={200}
+                    id="qr-canvas-identity"
+                    value={verifyUrl} 
+                    size={260}
+                    level="H"
+                    includeMargin={true}
+                  />
+                  <QRCodeCanvas 
+                    id="qr-canvas-attendance"
+                    value={legacyPayload} 
+                    size={260}
                     level="H"
                     includeMargin={true}
                   />
                 </div>
-                {/* Visible QR Code for display */}
-                <QRCodeCanvas 
-                  value={JSON.stringify({ empId: selectedEmployee.empId })} 
-                  size={180}
-                  level="H"
-                />
+
+                {/* Visible QR Code Display Box */}
+                <div className={`p-4 rounded-2xl shadow-inner border mb-3 relative transition-all ${
+                  activePassTab === 'identity' ? 'bg-emerald-50/40 border-emerald-200' : 'bg-blue-50/40 border-blue-200'
+                }`}>
+                  <QRCodeCanvas 
+                    value={activeQrValue} 
+                    size={175}
+                    level="H"
+                  />
+                </div>
+
+                {/* Contextual description for the active QR */}
+                {activePassTab === 'identity' ? (
+                  <div className="w-full bg-emerald-50/80 border border-emerald-200/80 rounded-xl p-2.5 mb-3 text-center">
+                    <span className="text-[11px] font-bold text-emerald-800 flex items-center justify-center">
+                      <ShieldCheck size={13} className="mr-1 text-emerald-600" />
+                      Public Verification QR (For ID Card Print)
+                    </span>
+                    <p className="text-[10px] text-emerald-700 mt-0.5 leading-snug">
+                      Scanning with any standard phone camera verifies their official identity.
+                    </p>
+                    <div className="mt-2 flex items-center justify-between bg-white rounded-lg px-2 py-1 border border-emerald-200 text-[11px]">
+                      <span className="font-mono text-emerald-900 truncate max-w-[190px]">
+                        {verifyUrl}
+                      </span>
+                      <div className="flex items-center space-x-1 shrink-0 ml-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(verifyUrl);
+                            setCopiedPassUrl(true);
+                            setTimeout(() => setCopiedPassUrl(false), 2000);
+                          }}
+                          className="p-1 text-emerald-700 hover:bg-emerald-50 rounded"
+                          title="Copy verification URL"
+                        >
+                          {copiedPassUrl ? <Check size={13} className="text-emerald-600" /> : <Copy size={13} />}
+                        </button>
+                        <a
+                          href={verifyUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-1 text-emerald-700 hover:bg-emerald-50 rounded"
+                          title="Open verification page in new tab"
+                        >
+                          <ExternalLink size={13} />
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="w-full bg-blue-50/80 border border-blue-200/80 rounded-xl p-2.5 mb-3 text-center">
+                    <span className="text-[11px] font-bold text-blue-800 flex items-center justify-center">
+                      <Clock size={13} className="mr-1 text-blue-600" />
+                      Gate Attendance QR (Legacy Internal)
+                    </span>
+                    <p className="text-[10px] text-blue-700 mt-0.5 leading-snug">
+                      Stores raw ID for gate check-in / check-out terminals.
+                    </p>
+                    <div className="mt-2 bg-white rounded-lg px-2 py-1 border border-blue-200 text-[11px] font-mono text-blue-900 text-center truncate">
+                      {legacyPayload}
+                    </div>
+                  </div>
+                )}
+
+                <h2 className="text-xl font-bold text-gray-800 text-center">{selectedEmployee.name}</h2>
+                <p className="text-gray-500 font-mono text-xs mt-0.5 font-bold">{selectedEmployee.empId} • {selectedEmployee.department}</p>
+
+                {selectedEmployee.group_members && (
+                  <div className="mt-2.5 bg-gray-50 p-2.5 rounded-xl w-full text-center border border-gray-100">
+                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide block mb-0.5">Group Members</span>
+                    <span className="text-xs font-medium text-gray-700">{selectedEmployee.group_members}</span>
+                  </div>
+                )}
+                
+                {selectedEmployee.document_url && (
+                  <a 
+                    href={selectedEmployee.document_url} 
+                    target="_blank" 
+                    rel="noreferrer"
+                    className="mt-3 text-xs text-blue-600 font-medium flex items-center bg-blue-50 px-3 py-1.5 rounded-lg"
+                  >
+                    <FileText size={14} className="mr-1.5" /> View Attached Document
+                  </a>
+                )}
               </div>
 
-              <h2 className="text-2xl font-bold text-gray-800 text-center">{selectedEmployee.name}</h2>
-              <p className="text-gray-500 font-mono mt-1">{selectedEmployee.empId}</p>
+              <div className="bg-gray-50 p-4 border-t border-gray-100 px-6 space-y-2">
+                {role === 'admin' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const empToEdit = selectedEmployee;
+                      setSelectedEmployee(null);
+                      handleOpenEditModal(empToEdit);
+                    }}
+                    className="w-full bg-blue-50 hover:bg-blue-100 active:bg-blue-200 text-blue-800 border border-blue-200 py-2.5 rounded-xl flex items-center justify-center font-bold transition-colors text-xs active:scale-95 shadow-xs"
+                  >
+                    <Pencil size={14} className="mr-1.5 text-blue-600" /> Edit Staff Details
+                  </button>
+                )}
+                <div className="w-full flex space-x-2">
+                  <button 
+                    onClick={() => {
+                      const canvasId = activePassTab === 'identity' ? 'qr-canvas-identity' : 'qr-canvas-attendance';
+                      const qrCanvas = document.getElementById(canvasId) as HTMLCanvasElement;
+                      if (!qrCanvas) return;
+                      const cardCanvas = generateCardCanvas(qrCanvas, selectedEmployee, { type: activePassTab });
+                      const fileName = `${selectedEmployee.name.replace(/\s+/g, '_')}_${activePassTab === 'identity' ? 'Identity_Card' : 'Attendance_Pass'}.png`;
 
-              {selectedEmployee.group_members && (
-                <div className="mt-3 bg-gray-50 p-3 rounded-xl w-full text-center border border-gray-100">
-                  <span className="text-xs font-bold text-gray-500 uppercase tracking-wide block mb-1">Group Members</span>
-                  <span className="text-sm font-medium text-gray-700">{selectedEmployee.group_members}</span>
-                </div>
-              )}
-              
-              {selectedEmployee.document_url && (
-                <a 
-                  href={selectedEmployee.document_url} 
-                  target="_blank" 
-                  rel="noreferrer"
-                  className="mt-4 text-sm text-blue-600 font-medium flex items-center bg-blue-50 px-4 py-2 rounded-lg"
-                >
-                  <FileText size={16} className="mr-2" /> View Attached Document
-                </a>
-              )}
-            </div>
-
-            <div className="bg-gray-50 p-4 border-t border-gray-100 px-6 space-y-2">
-              {role === 'admin' && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const empToEdit = selectedEmployee;
-                    setSelectedEmployee(null);
-                    handleOpenEditModal(empToEdit);
-                  }}
-                  className="w-full bg-blue-50 hover:bg-blue-100 active:bg-blue-200 text-blue-800 border border-blue-200 py-2.5 rounded-xl flex items-center justify-center font-bold transition-colors text-xs active:scale-95 shadow-xs"
-                >
-                  <Pencil size={14} className="mr-1.5 text-blue-600" /> Edit Staff Details
-                </button>
-              )}
-              <div className="w-full flex space-x-2">
-                <button 
-                  onClick={() => {
-                    const qrCanvas = document.getElementById("qr-canvas") as HTMLCanvasElement;
-                    if (!qrCanvas) return;
-                    const cardCanvas = generateCardCanvas(qrCanvas, selectedEmployee);
-                    const fileName = `${selectedEmployee.name.replace(/\s+/g, '_')}_Pass.png`;
-
-                    if (cardCanvas.toBlob) {
-                      cardCanvas.toBlob((blob) => {
-                        if (!blob) {
-                          const url = cardCanvas.toDataURL("image/png");
+                      if (cardCanvas.toBlob) {
+                        cardCanvas.toBlob((blob) => {
+                          if (!blob) {
+                            const url = cardCanvas.toDataURL("image/png");
+                            const a = document.createElement("a");
+                            a.href = url;
+                            a.download = fileName;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            return;
+                          }
+                          const url = URL.createObjectURL(blob);
                           const a = document.createElement("a");
                           a.href = url;
                           a.download = fileName;
                           document.body.appendChild(a);
                           a.click();
-                          document.body.removeChild(a);
-                          return;
-                        }
-                        const url = URL.createObjectURL(blob);
+                          setTimeout(() => {
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                          }, 1000);
+                        }, "image/png");
+                      } else {
+                        const url = cardCanvas.toDataURL("image/png");
                         const a = document.createElement("a");
                         a.href = url;
                         a.download = fileName;
                         document.body.appendChild(a);
                         a.click();
-                        setTimeout(() => {
-                          document.body.removeChild(a);
-                          URL.revokeObjectURL(url);
-                        }, 1000);
-                      }, "image/png");
-                    } else {
-                      const url = cardCanvas.toDataURL("image/png");
-                      const a = document.createElement("a");
-                      a.href = url;
-                      a.download = fileName;
-                      document.body.appendChild(a);
-                      a.click();
-                      document.body.removeChild(a);
-                    }
-                  }}
-                  className="flex-1 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 py-3 rounded-xl flex items-center justify-center font-bold shadow-sm transition-colors text-sm active:scale-95"
-                >
-                  <Download size={18} className="mr-1" /> Download
-                </button>
-                <button 
-                  onClick={async () => {
-                    const qrCanvas = document.getElementById("qr-canvas") as HTMLCanvasElement;
-                    if (!qrCanvas) return;
-                    const cardCanvas = generateCardCanvas(qrCanvas, selectedEmployee);
-                    
-                    cardCanvas.toBlob(async (blob) => {
-                      if (!blob) return;
-                      const file = new File([blob], `${selectedEmployee.name.replace(/\s+/g, '_')}_Pass.png`, { type: "image/png" });
+                        document.body.removeChild(a);
+                      }
+                    }}
+                    className="flex-1 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 py-3 rounded-xl flex items-center justify-center font-bold shadow-sm transition-colors text-xs active:scale-95"
+                  >
+                    <Download size={16} className="mr-1 text-gray-600" />
+                    Download {activePassTab === 'identity' ? 'ID Card' : 'Pass'}
+                  </button>
+
+                  <button 
+                    onClick={async () => {
+                      const canvasId = activePassTab === 'identity' ? 'qr-canvas-identity' : 'qr-canvas-attendance';
+                      const qrCanvas = document.getElementById(canvasId) as HTMLCanvasElement;
+                      if (!qrCanvas) return;
+                      const cardCanvas = generateCardCanvas(qrCanvas, selectedEmployee, { type: activePassTab });
+                      const cardLabel = activePassTab === 'identity' ? 'Identity_Card' : 'Attendance_Pass';
                       
-                      const useDirectWhatsApp = selectedEmployee.phone && selectedEmployee.phone.length > 5;
-                      
-                      if (useDirectWhatsApp) {
-                        if (!navigator.onLine) {
-                          alert("You must be online to generate and upload the cloud link for this pass.");
-                          return;
-                        }
-                        try {
-                          const fileName = `${selectedEmployee.empId}_${Date.now()}.png`;
-                          const { error } = await supabase.storage.from('qr-passes').upload(fileName, file, { cacheControl: '3600', upsert: false });
-                          if (error) {
-                            alert("Failed to upload image. Did you create the 'qr-passes' public bucket?");
+                      cardCanvas.toBlob(async (blob) => {
+                        if (!blob) return;
+                        const file = new File([blob], `${selectedEmployee.name.replace(/\s+/g, '_')}_${cardLabel}.png`, { type: "image/png" });
+                        
+                        const useDirectWhatsApp = selectedEmployee.phone && selectedEmployee.phone.length > 5;
+                        
+                        if (useDirectWhatsApp) {
+                          if (!navigator.onLine) {
+                            alert("You must be online to generate and upload the cloud link for this pass.");
                             return;
                           }
-                          const passPageUrl = `${window.location.origin}/pass/${fileName}`;
-                          const cleanPhone = (selectedEmployee.phone || '').replace(/\D/g,'');
-                          const msg = `Hello ${selectedEmployee.name},\n\nOpen the link to view your QR pass and download it:\n${passPageUrl}`;
-                          const waUrl = `https://wa.me/${cleanPhone}?text=` + encodeURIComponent(msg);
-                          window.open(waUrl, "_blank");
-                        } catch (err) {
-                          alert("An error occurred while uploading the pass.");
+                          try {
+                            const fileName = `${selectedEmployee.empId}_${cardLabel}_${Date.now()}.png`;
+                            const { error } = await supabase.storage.from('qr-passes').upload(fileName, file, { cacheControl: '3600', upsert: false });
+                            if (error) {
+                              alert("Failed to upload image. Did you create the 'qr-passes' public bucket?");
+                              return;
+                            }
+                            const passPageUrl = `${window.location.origin}/pass/${fileName}`;
+                            const cleanPhone = (selectedEmployee.phone || '').replace(/\D/g,'');
+                            const msg = `Hello ${selectedEmployee.name},\n\nOpen the link to view your ${activePassTab === 'identity' ? 'Official Identity Card' : 'Attendance Pass'} and download it:\n${passPageUrl}`;
+                            const waUrl = `https://wa.me/${cleanPhone}?text=` + encodeURIComponent(msg);
+                            window.open(waUrl, "_blank");
+                          } catch (err) {
+                            alert("An error occurred while uploading the pass.");
+                          }
+                        } else if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                          try {
+                            await navigator.share({
+                              title: activePassTab === 'identity' ? 'Identity Card' : 'Attendance Pass',
+                              text: `Here is the ${activePassTab === 'identity' ? 'Official Identity Card' : 'Attendance QR Pass'} for ${selectedEmployee.name}.`,
+                              files: [file]
+                            });
+                          } catch (err: any) {
+                            console.log("Share cancelled or failed", err);
+                          }
+                        } else {
+                          alert("Please add a phone number for this profile to share via WhatsApp.");
                         }
-                      } else if (navigator.canShare && navigator.canShare({ files: [file] })) {
-                        try {
-                          await navigator.share({
-                            title: 'Attendance QR',
-                            text: `Here is the Attendance QR Pass for ${selectedEmployee.name}.`,
-                            files: [file]
-                          });
-                        } catch (err: any) {
-                          console.log("Share cancelled or failed", err);
-                        }
-                      } else {
-                        alert("Please add a phone number for this profile to share via WhatsApp.");
-                      }
-                    }, "image/png");
-                  }}
-                  className="flex-1 bg-[#25D366] hover:bg-[#1DA851] text-white py-3 rounded-xl flex items-center justify-center font-bold shadow-md transition-colors text-sm"
-                >
-                  <MessageCircle size={18} className="mr-1" /> WhatsApp
-                </button>
+                      }, "image/png");
+                    }}
+                    className="flex-1 bg-[#25D366] hover:bg-[#1DA851] text-white py-3 rounded-xl flex items-center justify-center font-bold shadow-md transition-colors text-xs active:scale-95"
+                  >
+                    <MessageCircle size={16} className="mr-1" /> WhatsApp
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

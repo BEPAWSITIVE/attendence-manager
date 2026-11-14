@@ -31,7 +31,11 @@ import {
   KeyRound,
   Eye,
   EyeOff,
-  UserPlus
+  UserPlus,
+  QrCode,
+  Globe,
+  FolderArchive,
+  ExternalLink
 } from "lucide-react";
 import { getGuardAccounts, saveGuardAccount, deleteGuardAccount, GuardAccount } from "@/lib/guardAuth";
 import { syncOfflineDataBackup, getOfflineBackupStats, OfflineBackupStats } from "@/lib/offlineBackup";
@@ -39,6 +43,14 @@ import { localdb } from "@/lib/localdb";
 import { supabase } from "@/lib/supabase";
 import { appLogger, LogEntry } from "@/lib/logger";
 import LogsTab from "@/components/LogsTab";
+import { getCachedEmployees } from "@/lib/employeeCache";
+import { 
+  getVerificationBaseUrl, 
+  setVerificationBaseUrl, 
+  DEFAULT_PRODUCTION_URL, 
+  exportAllQrsAsZip, 
+  triggerBlobDownload 
+} from "@/lib/qrUtils";
 
 export default function SettingsTab() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(() => {
@@ -82,6 +94,64 @@ export default function SettingsTab() {
   const [passwordModalGuard, setPasswordModalGuard] = useState<GuardAccount | null>(null);
   const [newPasswordVal, setNewPasswordVal] = useState('');
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+
+  // Identity Verification Base URL & Bulk ZIP state
+  const [verifyBaseUrl, setVerifyBaseUrl] = useState(() => getVerificationBaseUrl());
+  const [savedUrlSuccess, setSavedUrlSuccess] = useState(false);
+  const [isExportingAllZip, setIsExportingAllZip] = useState(false);
+  const [zipProgressStatus, setZipProgressStatus] = useState({ current: 0, total: 0, name: '' });
+  const [zipCardType, setZipCardType] = useState<'identity' | 'attendance' | 'both'>('identity');
+
+  const handleSaveVerifyUrl = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const clean = setVerificationBaseUrl(verifyBaseUrl);
+    setVerifyBaseUrl(clean);
+    setSavedUrlSuccess(true);
+    setTimeout(() => setSavedUrlSuccess(false), 2500);
+  };
+
+  const handleResetVerifyUrl = () => {
+    let currentOrigin = window.location.origin;
+    if (!currentOrigin || currentOrigin.includes('localhost')) {
+      currentOrigin = DEFAULT_PRODUCTION_URL;
+    }
+    const clean = setVerificationBaseUrl(currentOrigin);
+    setVerifyBaseUrl(clean);
+    setSavedUrlSuccess(true);
+    setTimeout(() => setSavedUrlSuccess(false), 2500);
+  };
+
+  const handleBulkZipDownload = async () => {
+    setIsExportingAllZip(true);
+    try {
+      const { data: emps } = await supabase
+        .from('employees')
+        .select('*')
+        .order('createdAt', { ascending: false });
+
+      const list = (emps && emps.length > 0) ? emps : getCachedEmployees();
+      if (!list || list.length === 0) {
+        alert("No registered personnel found in database or local storage to export.");
+        return;
+      }
+
+      setZipProgressStatus({ current: 0, total: list.length, name: 'Starting generation...' });
+      const blob = await exportAllQrsAsZip(list, {
+        type: zipCardType,
+        baseUrl: verifyBaseUrl,
+        onProgress: (current, total, name) => {
+          setZipProgressStatus({ current, total, name });
+        }
+      });
+      const typeLabel = zipCardType === 'identity' ? 'Identity_Cards' : zipCardType === 'attendance' ? 'Attendance_Passes' : 'All_Passes';
+      triggerBlobDownload(blob, `Peepal_Farm_${typeLabel}.zip`);
+    } catch (err: any) {
+      console.error("Bulk ZIP download failed:", err);
+      alert("Failed to create ZIP package: " + (err?.message || "Unknown error"));
+    } finally {
+      setIsExportingAllZip(false);
+    }
+  };
 
   const loadGuards = async () => {
     setGuardsLoading(true);
@@ -813,6 +883,177 @@ export default function SettingsTab() {
           )}
         </div>
       )}
+
+      {/* ======================================================== */}
+      {/* 🪪 IDENTITY VERIFICATION & QR PASS SETTINGS */}
+      {/* ======================================================== */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden space-y-0">
+        {/* Header */}
+        <div className="p-4 border-b border-gray-100 bg-gradient-to-r from-indigo-50/80 via-blue-50/60 to-purple-50/60 flex items-center justify-between">
+          <div className="flex items-center space-x-2.5">
+            <div className="p-2 bg-indigo-600 text-white rounded-xl shadow-xs">
+              <QrCode size={18} />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-gray-900 text-sm">Identity Verification & QR Settings</h3>
+              <p className="text-[11px] text-gray-500 font-medium">Configure public QR pass URL & bulk printing</p>
+            </div>
+          </div>
+          <span className="bg-indigo-100 text-indigo-700 font-extrabold text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">
+            Public Pass
+          </span>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {/* Base URL configuration */}
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1">
+                Verification Base URL
+              </label>
+              <p className="text-[11px] text-gray-500 leading-relaxed mb-2">
+                This domain is encoded into new employee ID cards. When scanned by any smartphone camera, it redirects to verify that staff member’s identity.
+              </p>
+              
+              <div className="flex items-center space-x-2">
+                <div className="relative flex-1">
+                  <Globe size={15} className="absolute left-3 top-3 text-gray-400 pointer-events-none" />
+                  <input
+                    type="url"
+                    value={verifyBaseUrl}
+                    onChange={(e) => setVerifyBaseUrl(e.target.value)}
+                    placeholder="https://attendance.peepalfarm.org"
+                    className="w-full bg-gray-50 border border-gray-200 pl-9 pr-3 py-2 rounded-xl text-xs font-mono font-medium outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSaveVerifyUrl}
+                  className="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-3 py-2 rounded-xl text-xs font-bold shrink-0 transition-colors shadow-xs"
+                >
+                  {savedUrlSuccess ? (
+                    <span className="flex items-center text-emerald-100">
+                      <Check size={14} className="mr-1 text-white" /> Saved!
+                    </span>
+                  ) : (
+                    'Save URL'
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Quick URL actions and preview */}
+            <div className="flex items-center justify-between text-[11px] pt-1">
+              <span className="text-gray-500 truncate max-w-[220px]">
+                Preview: <code className="font-mono text-indigo-700 font-bold">{verifyBaseUrl}/verify/STF-001</code>
+              </span>
+              <button
+                type="button"
+                onClick={handleResetVerifyUrl}
+                className="text-indigo-600 hover:text-indigo-800 font-bold underline cursor-pointer"
+              >
+                Reset to Current Domain
+              </button>
+            </div>
+          </div>
+
+          {/* Backward compatibility guarantee card */}
+          <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-xl p-3 flex items-start space-x-2.5">
+            <CheckCircle2 size={16} className="text-emerald-600 shrink-0 mt-0.5" />
+            <div className="text-xs text-emerald-900 leading-snug">
+              <p className="font-bold">Dual-Scan Compatibility Active</p>
+              <p className="text-emerald-800 text-[11px] mt-0.5">
+                The gate scanner seamlessly scans <b>both</b> new Verification URL QRs and legacy internal JSON QRs. Older physical cards will continue to log check-ins and check-outs without interruption.
+              </p>
+            </div>
+          </div>
+
+          <div className="border-t border-gray-100 pt-4 space-y-3">
+            <div>
+              <h4 className="font-bold text-gray-800 text-xs flex items-center">
+                <FolderArchive size={14} className="mr-1.5 text-indigo-600" />
+                Bulk Download All QR Passes (ZIP)
+              </h4>
+              <p className="text-[11px] text-gray-500 mt-0.5">
+                Export high-resolution printable ID cards for all personnel in one ZIP archive.
+              </p>
+            </div>
+
+            {/* Radio options for download type */}
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <label className={`p-2.5 rounded-xl border cursor-pointer transition-all ${
+                zipCardType === 'identity' ? 'bg-emerald-50 border-emerald-300 ring-1 ring-emerald-300' : 'bg-gray-50 border-gray-200'
+              }`}>
+                <input
+                  type="radio"
+                  name="settingsZipType"
+                  value="identity"
+                  checked={zipCardType === 'identity'}
+                  onChange={() => setZipCardType('identity')}
+                  className="sr-only"
+                />
+                <span className="font-bold text-gray-800 block text-[11px]">🪪 Identity Cards</span>
+                <span className="text-[10px] text-gray-500 block mt-0.5">Public URL QR (For Physical ID Cards)</span>
+              </label>
+
+              <label className={`p-2.5 rounded-xl border cursor-pointer transition-all ${
+                zipCardType === 'attendance' ? 'bg-blue-50 border-blue-300 ring-1 ring-blue-300' : 'bg-gray-50 border-gray-200'
+              }`}>
+                <input
+                  type="radio"
+                  name="settingsZipType"
+                  value="attendance"
+                  checked={zipCardType === 'attendance'}
+                  onChange={() => setZipCardType('attendance')}
+                  className="sr-only"
+                />
+                <span className="font-bold text-gray-800 block text-[11px]">⏱️ Gate Passes</span>
+                <span className="text-[10px] text-gray-500 block mt-0.5">Internal Gate QR (Raw ID)</span>
+              </label>
+            </div>
+
+            {isExportingAllZip && (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1.5 animate-fade-in text-xs">
+                <div className="flex items-center justify-between font-bold text-slate-700">
+                  <span className="flex items-center">
+                    <RefreshCw size={12} className="animate-spin mr-1.5 text-indigo-600" />
+                    Generating ID Cards...
+                  </span>
+                  <span>{zipProgressStatus.current} / {zipProgressStatus.total}</span>
+                </div>
+                <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                  <div
+                    className="bg-indigo-600 h-full transition-all duration-150 rounded-full"
+                    style={{ width: `${zipProgressStatus.total ? (zipProgressStatus.current / zipProgressStatus.total) * 100 : 0}%` }}
+                  />
+                </div>
+                <p className="text-[10px] text-slate-500 truncate">
+                  Processing: {zipProgressStatus.name}
+                </p>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleBulkZipDownload}
+              disabled={isExportingAllZip}
+              className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 active:from-indigo-800 active:to-blue-800 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm flex items-center justify-center transition-all disabled:opacity-50 active:scale-95 cursor-pointer"
+            >
+              {isExportingAllZip ? (
+                <>
+                  <RefreshCw size={14} className="animate-spin mr-1.5" />
+                  Generating ZIP Archive...
+                </>
+              ) : (
+                <>
+                  <Download size={14} className="mr-1.5" />
+                  Download All Personnel QRs (.ZIP)
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* ======================================================== */}
       {/* 🛡️ GUARD & GUEST GUARD CREDENTIALS MANAGEMENT SECTION */}
