@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { supabase, AttendanceRecord } from "@/lib/supabase";
 import { localdb } from "@/lib/localdb";
+import { formatTimeForDisplay } from "@/lib/timeFormat";
 import { CalendarDays, Clock, Users, FileBarChart2, ChevronDown , Search, X, MapPin, Navigation } from "lucide-react";
 
 export default function ReportsTab() {
@@ -443,11 +444,11 @@ export default function ReportsTab() {
                       </div>
                       <div className="flex justify-between text-xs font-medium text-gray-500">
                         <div>
-                          <p>IN: <span className="text-gray-800">{log.inTime}</span></p>
+                          <p>IN: <span className="text-gray-800">{formatTimeForDisplay(log.inTime, log.inTimestamp)}</span></p>
                           {selectedReport.category === 'Vehicle' && log.meter_in ? <p className="mt-0.5">Meter: {log.meter_in}</p> : null}
                         </div>
                         <div className="text-right">
-                          <p>OUT: <span className="text-gray-800">{log.outTime || '--:--'}</span></p>
+                          <p>OUT: <span className="text-gray-800">{formatTimeForDisplay(log.outTime, log.outTimestamp)}</span></p>
                           {selectedReport.category === 'Vehicle' && log.meter_out ? <p className="mt-0.5">Meter: {log.meter_out}</p> : null}
                         </div>
                       </div>
