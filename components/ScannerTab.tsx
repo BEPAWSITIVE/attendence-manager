@@ -6,6 +6,7 @@ import { localdb } from "@/lib/localdb";
 import { CheckCircle2, AlertCircle, X, Truck, Package, Search, ChevronRight, Loader2, Sparkles, Camera, Flashlight, FlashlightOff, WifiOff, ClipboardList, RefreshCw, Clock, Pencil } from "lucide-react";
 import { syncOfflineDataBackup, updateCachedEmployee, updateCachedAttendance } from "@/lib/offlineBackup";
 import { getCachedEmployees, getCachedEmployeeById } from "@/lib/employeeCache";
+import { formatTimeForSave, formatTimeForDisplay } from "@/lib/timeFormat";
 
 const getCachedProfile = (id: string): Employee | null => {
   return getCachedEmployeeById(id);
@@ -39,13 +40,7 @@ const convertTo24Hour = (timeStr: string): string => {
 
 const formatTo12Hour = (time24: string): string => {
   if (!time24) return "";
-  const parts = time24.split(":");
-  let hours = parseInt(parts[0], 10);
-  const minutes = parts[1] || "00";
-  const ampm = hours >= 12 ? "PM" : "AM";
-  hours = hours % 12;
-  hours = hours ? hours : 12;
-  return `${String(hours).padStart(2, "0")}:${minutes} ${ampm}`;
+  return formatTimeForDisplay(time24);
 };
 
 const getCombinedRecords = async (id: string, date: string): Promise<any[]> => {
@@ -506,7 +501,7 @@ export default function ScannerTab() {
 
       const today = new Date();
       const dateStr = today.toISOString().split("T")[0];
-      const timeStr = today.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const timeStr = formatTimeForSave(today);
 
       let empData: Employee | null = null;
       let existingRecords: any[] = [];
@@ -715,7 +710,7 @@ export default function ScannerTab() {
     
     const today = new Date();
     const dateStr = today.toISOString().split("T")[0];
-    const timeStr = today.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const timeStr = formatTimeForSave(today);
 
     if (isDispatching) {
       const newRecord = {
@@ -988,7 +983,7 @@ export default function ScannerTab() {
     
     const { profile, lastRecord } = parcelModal;
     const today = new Date();
-    const timeStr = today.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const timeStr = formatTimeForSave(today);
 
     const updatedRecord = {
       ...lastRecord,
@@ -1449,7 +1444,7 @@ export default function ScannerTab() {
                       <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-xs font-mono bg-gray-50/80 px-3 py-2 rounded-xl">
                         <div className="flex items-center space-x-1.5 text-emerald-800 font-bold flex-wrap gap-y-1">
                           <span className="text-[10px] uppercase font-semibold text-gray-400 font-sans">IN:</span>
-                          <span>{r.inTime || '--:--'}</span>
+                          <span>{formatTimeForDisplay(r.inTime, r.inTimestamp)}</span>
                           {isEntryTimeEditAllowed(r.empId) && (
                             <button
                               type="button"
@@ -1466,9 +1461,9 @@ export default function ScannerTab() {
 
                         <div className="flex items-center space-x-1.5">
                           <span className="text-[10px] uppercase font-semibold text-gray-400 font-sans">OUT:</span>
-                          {r.outTime ? (
+                          {r.outTime || r.outTimestamp != null ? (
                             <span className="font-bold text-gray-800">
-                              {r.outTime}
+                              {formatTimeForDisplay(r.outTime, r.outTimestamp)}
                               {r.totalHours && (
                                 <span className="text-[10px] font-sans text-gray-500 ml-1.5 font-normal">
                                   ({r.totalHours})
@@ -1552,7 +1547,7 @@ export default function ScannerTab() {
                   Current Entry Time Recorded
                 </label>
                 <div className="p-2.5 bg-gray-100 rounded-xl text-xs font-mono font-bold text-gray-700 flex items-center justify-between">
-                  <span>{editingInTimeRecord.inTime || 'Not set'}</span>
+                  <span>{formatTimeForDisplay(editingInTimeRecord.inTime, editingInTimeRecord.inTimestamp)}</span>
                   <span className="text-[10px] text-gray-500 font-sans">Date: {editingInTimeRecord.date}</span>
                 </div>
               </div>
