@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { supabase, AttendanceRecord } from "@/lib/supabase";
 import { localdb } from "@/lib/localdb";
+import { formatTimeForDisplay } from "@/lib/timeFormat";
 import { Clock, CheckCircle2, UserPlus, Truck, Shield, Package } from "lucide-react";
 
 export default function LogsTab({ embedded }: { embedded?: boolean } = {}) {
@@ -130,11 +131,11 @@ export default function LogsTab({ embedded }: { embedded?: boolean } = {}) {
                 <div className="flex items-center space-x-2 mt-1">
                   <div className="flex-1 bg-purple-50 p-2 rounded-xl text-center border border-purple-100">
                     <span className="block text-[10px] text-purple-600 uppercase font-bold tracking-widest">Received</span>
-                    <span className="font-bold text-gray-800">{log.inTime}</span>
+                    <span className="font-bold text-gray-800">{formatTimeForDisplay(log.inTime, log.inTimestamp)}</span>
                   </div>
                   <div className="flex-1 bg-gray-50 p-2 rounded-xl text-center border border-gray-100">
                     <span className="block text-[10px] text-gray-500 uppercase font-bold tracking-widest">{log.driver_name ? `Given to ${log.driver_name}` : 'Awaiting Pickup'}</span>
-                    <span className="font-bold text-gray-800">{log.outTime || "--:--"}</span>
+                    <span className="font-bold text-gray-800">{formatTimeForDisplay(log.outTime, log.outTimestamp)}</span>
                   </div>
                 </div>
               ) : log.category === 'Vehicle' ? (
@@ -151,12 +152,12 @@ export default function LogsTab({ embedded }: { embedded?: boolean } = {}) {
                   )}
                   <div className="flex justify-between items-center">
                     <div className="text-center">
-                      <span className="block text-[10px] text-gray-400 uppercase font-bold tracking-widest">Out ({log.inTime})</span>
+                      <span className="block text-[10px] text-gray-400 uppercase font-bold tracking-widest">Out ({formatTimeForDisplay(log.inTime, log.inTimestamp)})</span>
                       <span className="font-mono font-bold text-gray-800">{log.meter_out}</span>
                     </div>
                     <div className="h-px bg-gray-300 w-8 mx-2"></div>
                     <div className="text-center">
-                      <span className="block text-[10px] text-gray-400 uppercase font-bold tracking-widest">In ({log.outTime || '--'})</span>
+                      <span className="block text-[10px] text-gray-400 uppercase font-bold tracking-widest">In ({formatTimeForDisplay(log.outTime, log.outTimestamp)})</span>
                       <span className="font-mono font-bold text-gray-800">{log.meter_in || '--'}</span>
                     </div>
                   </div>
@@ -170,11 +171,11 @@ export default function LogsTab({ embedded }: { embedded?: boolean } = {}) {
                 <div className="flex items-center space-x-2 mt-1">
                   <div className="flex-1 bg-green-50 p-2 rounded-xl text-center border border-green-100">
                     <span className="block text-[10px] text-green-600 uppercase font-bold tracking-widest">Check In</span>
-                    <span className="font-bold text-gray-800">{log.inTime}</span>
+                    <span className="font-bold text-gray-800">{formatTimeForDisplay(log.inTime, log.inTimestamp)}</span>
                   </div>
                   <div className="flex-1 bg-gray-50 p-2 rounded-xl text-center border border-gray-100">
                     <span className="block text-[10px] text-gray-500 uppercase font-bold tracking-widest">Check Out</span>
-                    <span className="font-bold text-gray-800">{log.outTime || "--:--"}</span>
+                    <span className="font-bold text-gray-800">{formatTimeForDisplay(log.outTime, log.outTimestamp)}</span>
                   </div>
                 </div>
               )}
