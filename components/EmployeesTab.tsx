@@ -746,112 +746,123 @@ export default function EmployeesTab({
 
   return (
     <div className="p-4 pb-20 max-w-md mx-auto space-y-4">
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-2xl font-bold text-gray-800">Registry</h2>
-        <div className="flex items-center space-x-2">
-          {role === 'admin' && (
-            <>
-              <input 
-                type="file" 
-                accept=".csv,text/csv"
-                ref={csvInputRef}
-                onChange={handleCsvFileSelect}
-                className="hidden"
-              />
-              {/* Upload CSV Split Button with Categories Sample Menu */}
-              <div className="relative inline-flex items-stretch rounded-xl border border-emerald-200 bg-emerald-50 shadow-sm h-9">
-                <button 
-                  type="button"
-                  onClick={() => csvInputRef.current?.click()}
-                  className="flex items-center px-2.5 sm:px-3 text-xs sm:text-sm font-bold text-emerald-700 hover:bg-emerald-100 active:bg-emerald-200 transition-colors border-r border-emerald-200 rounded-l-[11px]"
-                  title="Upload CSV to add members in bulk"
-                >
-                  <FileSpreadsheet size={16} className="mr-1.5 text-emerald-600 shrink-0" />
-                  <span>Upload CSV</span>
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => setShowTemplateMenu(!showTemplateMenu)}
-                  className="flex items-center justify-center px-2 text-emerald-700 hover:bg-emerald-100 active:bg-emerald-200 transition-colors rounded-r-[11px]"
-                  title="Download sample CSV template for each category"
-                  aria-label="Download sample CSV template"
-                >
-                  <ChevronDown size={14} className={`text-emerald-700 transition-transform duration-200 ${showTemplateMenu ? 'rotate-180' : ''}`} />
-                </button>
+      {/* Registry Responsive Header */}
+      <div className="space-y-2.5">
+        {/* Row 1: Title & Primary Add Action */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center space-x-2 min-w-0">
+            <h2 className="text-2xl font-black text-gray-800 tracking-tight">Registry</h2>
+            <span className="bg-slate-100 text-slate-600 text-xs font-black px-2.5 py-0.5 rounded-full border border-slate-200/80 shrink-0">
+              {employees.length}
+            </span>
+          </div>
 
-                {showTemplateMenu && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setShowTemplateMenu(false)} />
-                    <div className="absolute right-0 top-full mt-1.5 w-64 bg-white rounded-2xl shadow-xl border border-gray-100 p-2 z-50 animate-fade-in text-xs">
-                      <div className="px-2.5 py-1.5 font-bold text-gray-400 uppercase text-[10px] tracking-wider border-b border-gray-100 mb-1">
-                        Download Sample CSV
-                      </div>
-                      <button 
-                        type="button"
-                        onClick={() => { downloadCategoryTemplate('Staff'); setShowTemplateMenu(false); }}
-                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-blue-50 text-blue-700 font-bold flex items-center justify-between transition-colors"
-                      >
-                        <span>👤 Staff Template</span>
-                        <Download size={13} />
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => { downloadCategoryTemplate('Volunteer'); setShowTemplateMenu(false); }}
-                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-purple-50 text-purple-700 font-bold flex items-center justify-between transition-colors"
-                      >
-                        <span>🤝 Volunteer Template</span>
-                        <Download size={13} />
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => { downloadCategoryTemplate('Vehicle'); setShowTemplateMenu(false); }}
-                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-amber-50 text-amber-700 font-bold flex items-center justify-between transition-colors"
-                      >
-                        <span>🚚 Vehicle Template</span>
-                        <Download size={13} />
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => { downloadCategoryTemplate('Visitor'); setShowTemplateMenu(false); }}
-                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-emerald-50 text-emerald-700 font-bold flex items-center justify-between transition-colors"
-                      >
-                        <span>🏷️ Visitor Template</span>
-                        <Download size={13} />
-                      </button>
-                      <div className="border-t border-gray-100 my-1" />
-                      <button 
-                        type="button"
-                        onClick={() => { downloadCategoryTemplate('All'); setShowTemplateMenu(false); }}
-                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-gray-100 text-gray-800 font-bold flex items-center justify-between transition-colors"
-                      >
-                        <span>📁 All Categories Combined</span>
-                        <Download size={13} />
-                      </button>
+          <button 
+            type="button"
+            onClick={handleOpenForm}
+            className="bg-blue-900 hover:bg-blue-800 active:bg-blue-950 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center shadow-xs active:scale-95 transition-all whitespace-nowrap shrink-0 h-9"
+          >
+            <UserPlus size={15} className="mr-1.5 shrink-0" />
+            <span>Add New</span>
+          </button>
+        </div>
+
+        {/* Row 2: Secondary Tool Actions (Upload CSV & Bulk ZIP Export) */}
+        {role === 'admin' && (
+          <div className="grid grid-cols-2 gap-2">
+            <input 
+              type="file" 
+              accept=".csv,text/csv"
+              ref={csvInputRef}
+              onChange={handleCsvFileSelect}
+              className="hidden"
+            />
+            {/* Upload CSV Split Button with Categories Sample Menu */}
+            <div className="relative inline-flex items-stretch rounded-xl border border-emerald-200 bg-emerald-50/90 shadow-xs h-9 min-w-0">
+              <button 
+                type="button"
+                onClick={() => csvInputRef.current?.click()}
+                className="flex-1 flex items-center justify-center px-2.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100/80 active:bg-emerald-200 transition-colors border-r border-emerald-200 rounded-l-[11px] whitespace-nowrap min-w-0 truncate"
+                title="Upload CSV to add members in bulk"
+              >
+                <FileSpreadsheet size={15} className="mr-1.5 text-emerald-600 shrink-0" />
+                <span className="truncate">Upload CSV</span>
+              </button>
+              <button 
+                type="button"
+                onClick={() => setShowTemplateMenu(!showTemplateMenu)}
+                className="flex items-center justify-center px-2 text-emerald-700 hover:bg-emerald-100 active:bg-emerald-200 transition-colors rounded-r-[11px] shrink-0"
+                title="Download sample CSV template for each category"
+                aria-label="Download sample CSV template"
+              >
+                <ChevronDown size={14} className={`text-emerald-700 transition-transform duration-200 ${showTemplateMenu ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showTemplateMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowTemplateMenu(false)} />
+                  <div className="absolute left-0 sm:left-auto sm:right-0 top-full mt-1.5 w-64 bg-white rounded-2xl shadow-xl border border-gray-100 p-2 z-50 animate-fade-in text-xs">
+                    <div className="px-2.5 py-1.5 font-bold text-gray-400 uppercase text-[10px] tracking-wider border-b border-gray-100 mb-1">
+                      Download Sample CSV
                     </div>
-                  </>
-                )}
-              </div>
-            </>
-          )}
-          {role === 'admin' && (
+                    <button 
+                      type="button"
+                      onClick={() => { downloadCategoryTemplate('Staff'); setShowTemplateMenu(false); }}
+                      className="w-full text-left px-3 py-2 rounded-xl hover:bg-blue-50 text-blue-700 font-bold flex items-center justify-between transition-colors"
+                    >
+                      <span>👤 Staff Template</span>
+                      <Download size={13} />
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => { downloadCategoryTemplate('Volunteer'); setShowTemplateMenu(false); }}
+                      className="w-full text-left px-3 py-2 rounded-xl hover:bg-purple-50 text-purple-700 font-bold flex items-center justify-between transition-colors"
+                    >
+                      <span>🤝 Volunteer Template</span>
+                      <Download size={13} />
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => { downloadCategoryTemplate('Vehicle'); setShowTemplateMenu(false); }}
+                      className="w-full text-left px-3 py-2 rounded-xl hover:bg-amber-50 text-amber-700 font-bold flex items-center justify-between transition-colors"
+                    >
+                      <span>🚚 Vehicle Template</span>
+                      <Download size={13} />
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => { downloadCategoryTemplate('Visitor'); setShowTemplateMenu(false); }}
+                      className="w-full text-left px-3 py-2 rounded-xl hover:bg-emerald-50 text-emerald-700 font-bold flex items-center justify-between transition-colors"
+                    >
+                      <span>🏷️ Visitor Template</span>
+                      <Download size={13} />
+                    </button>
+                    <div className="border-t border-gray-100 my-1" />
+                    <button 
+                      type="button"
+                      onClick={() => { downloadCategoryTemplate('All'); setShowTemplateMenu(false); }}
+                      className="w-full text-left px-3 py-2 rounded-xl hover:bg-gray-100 text-gray-800 font-bold flex items-center justify-between transition-colors"
+                    >
+                      <span>📁 All Categories Combined</span>
+                      <Download size={13} />
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Bulk QRs ZIP Button */}
             <button
               type="button"
               onClick={() => setShowZipModal(true)}
-              className="flex items-center px-2.5 sm:px-3 text-xs sm:text-sm font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 active:bg-indigo-200 border border-indigo-200/80 rounded-xl shadow-xs transition-colors h-9"
+              className="flex items-center justify-center px-2.5 text-xs font-bold text-indigo-800 bg-indigo-50/90 hover:bg-indigo-100 active:bg-indigo-200 border border-indigo-200 rounded-xl shadow-xs transition-colors h-9 whitespace-nowrap min-w-0 truncate"
               title="Download all QR identity cards in a ZIP folder for bulk printing"
             >
-              <FolderArchive size={16} className="mr-1.5 text-indigo-600 shrink-0" />
-              <span className="hidden sm:inline">Bulk QRs ZIP</span>
-              <span className="sm:hidden">ZIP</span>
+              <FolderArchive size={15} className="mr-1.5 text-indigo-600 shrink-0" />
+              <span className="truncate">Bulk QRs ZIP</span>
             </button>
-          )}
-          <button 
-            onClick={handleOpenForm}
-            className="bg-blue-900 hover:bg-blue-800 text-white px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center shadow-sm active:scale-95 transition-all h-9 shrink-0"
-          >
-            + Add New
-          </button>
-        </div>
+          </div>
+        )}
       </div>
 
       {showForm && (
@@ -1180,8 +1191,8 @@ export default function EmployeesTab({
       {/* Search & Category Filter Bar */}
       {!loading && employees.length > 0 && (
         <div className="space-y-2 mb-1">
-          <div className="flex items-center space-x-2">
-            <div className="relative flex-grow">
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 min-w-0">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <Search size={16} className="text-gray-400" />
               </div>
@@ -1189,8 +1200,8 @@ export default function EmployeesTab({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search staff, vehicle, ID, phone..."
-                className="w-full bg-white border border-gray-200 pl-9 pr-8 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm shadow-xs font-medium"
+                placeholder="Search staff, ID, phone..."
+                className="w-full bg-white border border-gray-200 pl-9 pr-8 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm shadow-xs font-medium placeholder:text-gray-400"
               />
               {searchQuery && (
                 <button
@@ -1204,11 +1215,11 @@ export default function EmployeesTab({
               )}
             </div>
 
-            <div className="relative w-36 shrink-0">
+            <div className="relative w-32 shrink-0">
               <select 
                 value={selectedCategoryFilter}
                 onChange={(e) => setSelectedCategoryFilter(e.target.value)}
-                className="appearance-none w-full bg-white text-gray-700 font-bold py-2.5 pl-3 pr-8 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-blue-500 text-xs shadow-xs cursor-pointer"
+                className="appearance-none w-full bg-white text-gray-700 font-bold py-2.5 pl-3 pr-7 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-blue-500 text-xs shadow-xs cursor-pointer truncate"
               >
                 <option value="All">All ({employees.length})</option>
                 <option value="Staff">👤 Staff ({employees.filter(e => (e.category || 'Staff') === 'Staff').length})</option>
@@ -1216,13 +1227,13 @@ export default function EmployeesTab({
                 <option value="Vehicle">🚚 Vehicle ({employees.filter(e => e.category === 'Vehicle').length})</option>
                 <option value="Visitor">🏷️ Visitor ({employees.filter(e => e.category === 'Visitor').length})</option>
               </select>
-              <ChevronDown size={14} className="absolute right-2.5 top-3.5 text-gray-500 pointer-events-none" />
+              <ChevronDown size={14} className="absolute right-2 top-3 text-gray-500 pointer-events-none" />
             </div>
           </div>
 
           {/* Filter Status Badge / Reset */}
           {(searchQuery.trim() !== "" || selectedCategoryFilter !== "All") && (
-            <div className="flex items-center justify-between text-xs px-1 text-gray-500 animate-fade-in">
+            <div className="flex items-center justify-between text-xs px-1 text-gray-500 animate-fade-in flex-wrap gap-1">
               <span>
                 Found <b className="text-gray-800">{filteredEmployees.length}</b> {filteredEmployees.length === 1 ? 'result' : 'results'}
                 {selectedCategoryFilter !== 'All' ? ` in ${selectedCategoryFilter}` : ''}
@@ -1231,7 +1242,7 @@ export default function EmployeesTab({
               <button
                 type="button"
                 onClick={() => { setSearchQuery(""); setSelectedCategoryFilter("All"); }}
-                className="text-blue-600 font-bold hover:underline"
+                className="text-blue-600 font-bold hover:underline ml-auto"
               >
                 Reset
               </button>
@@ -1326,12 +1337,12 @@ export default function EmployeesTab({
                       e.stopPropagation();
                       handleOpenEditModal(emp);
                     }}
-                    className="p-2 sm:px-3 sm:py-1.5 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 text-blue-700 border border-blue-200 rounded-xl font-bold text-xs flex items-center space-x-1 transition-all active:scale-95 shadow-xs"
+                    className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 text-blue-700 border border-blue-200 rounded-xl font-bold text-xs flex items-center space-x-1 transition-all active:scale-95 shadow-xs whitespace-nowrap shrink-0"
                     title={`Edit ${emp.name}`}
                     aria-label={`Edit ${emp.name}`}
                   >
                     <Pencil size={13} className="text-blue-600 shrink-0" />
-                    <span className="hidden sm:inline">Edit</span>
+                    <span>Edit</span>
                   </button>
                 )}
               </div>
@@ -1602,16 +1613,16 @@ export default function EmployeesTab({
       {/* Bulk ZIP Export Modal */}
       {showZipModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl p-6 relative">
+          <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl p-5 sm:p-6 relative max-h-[92dvh] flex flex-col">
             <button 
               onClick={() => !isExportingZip && setShowZipModal(false)}
               disabled={isExportingZip}
-              className="absolute top-4 right-4 p-2 bg-gray-100 text-gray-500 rounded-full hover:bg-gray-200 transition-colors disabled:opacity-50"
+              className="absolute top-4 right-4 p-2 bg-gray-100 text-gray-500 rounded-full hover:bg-gray-200 transition-colors disabled:opacity-50 z-10"
             >
               <X size={18} />
             </button>
 
-            <div className="flex items-center space-x-3 mb-4">
+            <div className="flex items-center space-x-3 mb-4 shrink-0">
               <div className="p-2.5 rounded-2xl bg-indigo-100 text-indigo-700">
                 <FolderArchive size={24} />
               </div>
@@ -1621,7 +1632,7 @@ export default function EmployeesTab({
               </div>
             </div>
 
-            <div className="space-y-4 mb-6 text-xs">
+            <div className="space-y-4 mb-4 text-xs overflow-y-auto flex-1 pr-0.5">
               <div className="bg-indigo-50/70 border border-indigo-100 rounded-2xl p-3.5 text-indigo-950 leading-relaxed">
                 <p className="font-bold mb-1">📦 Ready for Bulk Printing</p>
                 <p className="text-indigo-800">
@@ -1716,12 +1727,12 @@ export default function EmployeesTab({
               )}
             </div>
 
-            <div className="flex space-x-2">
+            <div className="flex space-x-2 shrink-0 pt-2 border-t border-gray-100">
               <button
                 type="button"
                 onClick={() => setShowZipModal(false)}
                 disabled={isExportingZip}
-                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl font-bold text-xs transition-colors disabled:opacity-50"
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl font-bold text-xs transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -1729,7 +1740,7 @@ export default function EmployeesTab({
                 type="button"
                 onClick={handleExportZip}
                 disabled={isExportingZip || employees.length === 0}
-                className="flex-1 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white py-3 rounded-xl font-bold text-xs shadow-md transition-colors flex items-center justify-center disabled:opacity-50"
+                className="flex-1 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white py-2.5 rounded-xl font-bold text-xs shadow-md transition-colors flex items-center justify-center disabled:opacity-50"
               >
                 {isExportingZip ? (
                   <>
@@ -1756,7 +1767,7 @@ export default function EmployeesTab({
 
         return (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
-            <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl relative">
+            <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl relative max-h-[92dvh] flex flex-col">
               <button 
                 onClick={() => setSelectedEmployee(null)}
                 className="absolute top-4 right-4 p-2 bg-gray-100 text-gray-500 rounded-full hover:bg-gray-200 z-10 transition-colors"
@@ -1764,7 +1775,7 @@ export default function EmployeesTab({
                 <X size={18} />
               </button>
               
-              <div className="p-6 pb-4 flex flex-col items-center">
+              <div className="p-5 sm:p-6 pb-4 flex flex-col items-center overflow-y-auto flex-1">
                 {/* Category Banner Pill */}
                 <div className={`w-full text-center py-1.5 mb-4 rounded-lg font-bold text-xs tracking-widest uppercase
                   ${selectedEmployee.category === 'Vehicle' ? 'bg-amber-100 text-amber-700' : 
@@ -1908,7 +1919,7 @@ export default function EmployeesTab({
                 )}
               </div>
 
-              <div className="bg-gray-50 p-4 border-t border-gray-100 px-6 space-y-2">
+              <div className="bg-gray-50 p-4 border-t border-gray-100 px-6 space-y-2 shrink-0">
                 {role === 'admin' && (
                   <button
                     type="button"
