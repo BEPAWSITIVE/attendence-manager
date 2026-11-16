@@ -11,7 +11,6 @@ import {
   ShieldAlert, 
   XCircle
 } from 'lucide-react';
-import Link from 'next/link';
 
 type Props = {
   params: { id: string };
@@ -95,7 +94,7 @@ export default async function VerifyPage({ params }: Props) {
   }
 
   return (
-    <div className="min-h-screen bg-[#fafcfb] flex flex-col items-center justify-start font-sans antialiased text-slate-800 selection:bg-emerald-200">
+    <div className="min-h-screen bg-[#fafcfb] flex flex-col items-center justify-start pb-8 sm:pb-12 font-sans antialiased text-slate-800 selection:bg-emerald-200">
       
       {/* Container aligned with mockup's mobile width */}
       <div className="w-full max-w-[430px] flex flex-col items-center relative overflow-hidden">
@@ -325,16 +324,6 @@ export default async function VerifyPage({ params }: Props) {
               </>
             )}
 
-          </div>
-
-          {/* Return Link */}
-          <div className="mt-5 mb-6 text-center">
-            <Link 
-              href="/" 
-              className="text-xs font-bold text-slate-400 hover:text-slate-700 transition-colors"
-            >
-              ← Return to Attendance Manager
-            </Link>
           </div>
 
         </div>
