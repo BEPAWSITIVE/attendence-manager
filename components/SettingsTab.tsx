@@ -922,7 +922,7 @@ export default function SettingsTab() {
                     type="url"
                     value={verifyBaseUrl}
                     onChange={(e) => setVerifyBaseUrl(e.target.value)}
-                    placeholder="https://attendance.peepalfarm.org"
+                    placeholder="https://emp.peepalfarm.org"
                     className="w-full bg-gray-50 border border-gray-200 pl-9 pr-3 py-2 rounded-xl text-xs font-mono font-medium outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>

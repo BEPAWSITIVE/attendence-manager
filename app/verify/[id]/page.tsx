@@ -11,6 +11,8 @@ import {
   ShieldAlert, 
   XCircle
 } from 'lucide-react';
+import RealtimeVerificationTimestamp from '@/components/RealtimeVerificationTimestamp';
+import { formatIndianDateTime } from '@/lib/timeFormat';
 
 type Props = {
   params: { id: string };
@@ -71,18 +73,8 @@ export default async function VerifyPage({ params }: Props) {
   const decodedId = decodeURIComponent(rawId || '').trim();
   const emp = await fetchEmployee(decodedId);
 
-  // Live real-time timestamp: "16 Nov 2026 at 07:32 am"
-  const now = new Date();
-  const day = now.getDate();
-  const month = now.toLocaleDateString('en-US', { month: 'short' });
-  const year = now.getFullYear();
-  let hours = now.getHours();
-  const minutes = now.getMinutes().toString().padStart(2, '0');
-  const ampm = hours >= 12 ? 'pm' : 'am';
-  hours = hours % 12;
-  hours = hours ? hours : 12;
-  const formattedHours = hours.toString().padStart(2, '0');
-  const verifiedTimeString = `${day} ${month} ${year} at ${formattedHours}:${minutes} ${ampm}`;
+  // Live real-time timestamp formatted in Indian Standard Time (IST)
+  const verifiedTimeString = formatIndianDateTime(new Date());
 
   // Member Since date: "Nov 2026"
   let joinDateString = 'Nov 2026';
@@ -227,11 +219,8 @@ export default async function VerifyPage({ params }: Props) {
                     </div>
                   </div>
 
-                  {/* Real-time Verification Timestamp */}
-                  <div className="flex items-center justify-center space-x-1.5 text-xs text-slate-500 font-medium pt-1 pb-1">
-                    <Clock size={14} className="text-slate-400 stroke-[2]" />
-                    <span>Verified in real-time on {verifiedTimeString}</span>
-                  </div>
+                  {/* Real-time Verification Timestamp (Synced in Live India Standard Time) */}
+                  <RealtimeVerificationTimestamp initialTime={verifiedTimeString} />
 
                 </div>
 
@@ -308,10 +297,7 @@ export default async function VerifyPage({ params }: Props) {
                     </p>
                   </div>
 
-                  <div className="flex items-center justify-center space-x-1.5 text-xs text-slate-500 font-medium pt-1">
-                    <Clock size={14} className="text-slate-400 stroke-[2]" />
-                    <span>Checked on {verifiedTimeString}</span>
-                  </div>
+                  <RealtimeVerificationTimestamp initialTime={verifiedTimeString} prefix="Checked on" />
 
                   <div className="w-full select-none pointer-events-none overflow-hidden leading-none mt-2">
                     <img

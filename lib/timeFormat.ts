@@ -29,3 +29,20 @@ export function formatTimeForDisplay(time?: string | null, timestamp?: number | 
   if (hours > 23) return time;
   return `${hours % 12 || 12}:${minutes} ${hours >= 12 ? 'PM' : 'AM'}`;
 }
+
+export function formatIndianDateTime(date: Date = new Date()): string {
+  const datePart = date.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'Asia/Kolkata',
+  });
+  const timePart = date.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'Asia/Kolkata',
+  }).toLowerCase();
+  return `${datePart} at ${timePart}`;
+}
+

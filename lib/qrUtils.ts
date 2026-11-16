@@ -3,7 +3,7 @@ import JSZip from 'jszip';
 import QRCode from 'qrcode';
 
 const STORAGE_KEY_BASE_URL = 'ams_verify_base_url';
-export const DEFAULT_PRODUCTION_URL = 'https://attendance.peepalfarm.org';
+export const DEFAULT_PRODUCTION_URL = 'https://emp.peepalfarm.org';
 
 /**
  * Retrieve the configured public verification base URL.
