@@ -844,83 +844,154 @@ export default function ScannerTab() {
   const [driverName, setDriverName] = useState("");
   const [meterReading, setMeterReading] = useState("");
   const [visitedLocation, setVisitedLocation] = useState("");
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [isStartingScanner, setIsStartingScanner] = useState(false);
+  const isStartingRef = useRef(false);
 
-  const startScanner = async () => {
-    if (isScanning || scannerRef.current) return;
+  const startScanner = async (isUserGesture: boolean = false) => {
+    if (isStartingRef.current) return;
+    
+    // If scanner instance is already actively scanning
+    if (scannerRef.current) {
+      try {
+        if ((scannerRef.current as any).isScanning) {
+          setIsScanning(true);
+          return;
+        }
+      } catch (e) {}
+    }
+
+    isStartingRef.current = true;
+    setIsStartingScanner(true);
+    setCameraError(null);
+
     try {
+      // 1. Check if mediaDevices exists
+      if (typeof window !== 'undefined' && (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)) {
+        throw new Error("Camera API is not supported in this browser context. Please make sure you are using HTTPS (e.g. https://...).");
+      }
+
+      // 2. Ensure container element #reader exists in DOM
+      const readerEl = document.getElementById("reader");
+      if (!readerEl) {
+        throw new Error("Scanner container element (#reader) not found in DOM.");
+      }
+
+      // 3. Clean up any stale scanner instance
+      if (scannerRef.current) {
+        try {
+          if ((scannerRef.current as any).isScanning) {
+            await scannerRef.current.stop();
+          }
+          scannerRef.current.clear();
+        } catch (cleanErr) {
+          console.warn("Clean up previous scanner warning:", cleanErr);
+        }
+        scannerRef.current = null;
+      }
+
+      // 4. If triggered by user gesture, trigger getUserMedia directly to provoke browser permission dialog
+      if (isUserGesture) {
+        try {
+          const testStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: "environment" } }
+          });
+          testStream.getTracks().forEach(track => track.stop());
+        } catch (permErr: any) {
+          if (permErr.name === 'NotAllowedError' || permErr.name === 'PermissionDeniedError') {
+            throw new Error("Camera permission was denied. Please tap the lock/settings icon in your browser address bar and allow camera access.");
+          }
+        }
+      }
+
+      // 5. Initialize Html5Qrcode
       const html5QrCode = new Html5Qrcode("reader", {
         formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
         verbose: false
       });
       scannerRef.current = html5QrCode;
+
       const scanConfig = {
         fps: 10,
         qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
           const size = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.85);
           return { width: size, height: size };
         },
-        aspectRatio: 1.0,
         disableFlip: true
       };
-      
+
+      let started = false;
+
+      // Attempt 1: Facing mode environment (standard rear camera)
       try {
         await html5QrCode.start(
           { facingMode: "environment" },
-          {
-            ...scanConfig,
-            videoConstraints: {
-              facingMode: "environment",
-              width: { ideal: 640 },
-              height: { ideal: 640 },
-              aspectRatio: 1.0
-            }
-          },
+          scanConfig,
           onScanSuccess,
           undefined
         );
-      } catch (firstErr: any) {
-        console.warn("Direct facingMode environment failed, checking camera list...", firstErr);
-        // Fallback for modern Android multi-camera devices
-        const cameras = await Html5Qrcode.getCameras();
-        if (cameras && cameras.length > 0) {
-          const backCam = cameras.find(c => 
-            c.label.toLowerCase().includes('back') || 
-            c.label.toLowerCase().includes('rear') || 
-            c.label.toLowerCase().includes('environment') ||
-            c.label.toLowerCase().includes('0')
-          ) || cameras[cameras.length - 1];
+        started = true;
+      } catch (err1) {
+        console.warn("Attempt 1 (environment facingMode) failed:", err1);
+      }
 
+      // Attempt 2: Query camera list and select back/rear camera ID
+      if (!started) {
+        try {
+          const cameras = await Html5Qrcode.getCameras();
+          if (cameras && cameras.length > 0) {
+            const backCam = cameras.find(c => {
+              const label = (c.label || '').toLowerCase();
+              return label.includes('back') || label.includes('rear') || label.includes('environment') || label.includes('0');
+            }) || cameras[cameras.length - 1];
+
+            await html5QrCode.start(
+              backCam.id,
+              scanConfig,
+              onScanSuccess,
+              undefined
+            );
+            started = true;
+          }
+        } catch (err2) {
+          console.warn("Attempt 2 (camera deviceId) failed:", err2);
+        }
+      }
+
+      // Attempt 3: Any available camera / user facing fallback
+      if (!started) {
+        try {
           await html5QrCode.start(
-            backCam.id,
-            {
-              ...scanConfig,
-              videoConstraints: {
-                deviceId: { exact: backCam.id },
-                width: { ideal: 640 },
-                height: { ideal: 640 },
-                aspectRatio: 1.0
-              }
-            },
+            { facingMode: "user" },
+            scanConfig,
             onScanSuccess,
             undefined
           );
-        } else {
-          throw firstErr;
+          started = true;
+        } catch (err3: any) {
+          console.warn("Attempt 3 (user facing) failed:", err3);
+          throw err3;
         }
       }
+
       setIsScanning(true);
+      setCameraError(null);
     } catch (err: any) {
       console.error("Failed to start scanner on device:", err);
-      setScanResult({ 
-        success: false, 
-        msg: "Camera access failed. Please ensure camera permission is allowed in your browser settings." 
-      });
+      const msg = err?.message || "Camera access failed. Please ensure camera permission is allowed in your browser settings.";
+      setCameraError(msg);
+      setIsScanning(false);
+      scannerRef.current = null;
+    } finally {
+      isStartingRef.current = false;
+      setIsStartingScanner(false);
     }
   };
 
   const stopScanner = async () => {
-    if (scannerRef.current && isScanning) {
+    if (scannerRef.current) {
+      const scanner = scannerRef.current;
+      scannerRef.current = null;
       try {
         if (isTorchOn) {
           try {
@@ -931,19 +1002,29 @@ export default function ScannerTab() {
           } catch (e) {}
           setIsTorchOn(false);
         }
-        await scannerRef.current.stop();
-        scannerRef.current.clear();
-        scannerRef.current = null;
-        setIsScanning(false);
+        if ((scanner as any).isScanning) {
+          await scanner.stop();
+        }
+        scanner.clear();
       } catch (err) {
-        console.error("Failed to stop scanner", err);
+        console.warn("Failed to stop scanner gracefully:", err);
+      } finally {
+        setIsScanning(false);
       }
     }
   };
 
   useEffect(() => {
-    startScanner();
+    let isMounted = true;
+    const timer = setTimeout(() => {
+      if (isMounted) {
+        startScanner(false);
+      }
+    }, 150);
+
     return () => {
+      isMounted = false;
+      clearTimeout(timer);
       stopScanner();
     };
   }, []);
@@ -1504,6 +1585,35 @@ export default function ScannerTab() {
       <div className="relative w-full aspect-square bg-gray-100 rounded-[32px] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)] border-[6px] border-[#EAF3FF] z-10 mb-8 mt-4">
         
         <div id="reader" className="w-full h-full [&>video]:object-cover [&>video]:w-full [&>video]:h-full"></div>
+
+        {/* Loading state before stream starts */}
+        {!isScanning && !cameraError && (
+          <div className="absolute inset-0 bg-slate-900 z-10 flex flex-col items-center justify-center text-white/70">
+            <Loader2 size={28} className="animate-spin mb-2 text-blue-400" />
+            <span className="text-xs font-semibold">Starting camera...</span>
+          </div>
+        )}
+
+        {/* Camera Permission / Error Recovery UI */}
+        {cameraError && (
+          <div className="absolute inset-0 bg-slate-900/95 z-20 flex flex-col items-center justify-center p-6 text-center text-white animate-fade-in">
+            <div className="w-14 h-14 rounded-2xl bg-red-500/20 text-red-400 flex items-center justify-center mb-3 border border-red-500/30">
+              <Camera size={26} />
+            </div>
+            <h4 className="font-bold text-sm sm:text-base mb-1.5">Camera Access Needed</h4>
+            <p className="text-xs text-gray-300 max-w-[250px] leading-relaxed mb-4">
+              {cameraError}
+            </p>
+            <button
+              type="button"
+              onClick={() => startScanner(true)}
+              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center space-x-2 cursor-pointer"
+            >
+              <RefreshCw size={14} className={isStartingScanner ? 'animate-spin' : ''} />
+              <span>Allow Camera & Retry</span>
+            </button>
+          </div>
+        )}
         
         {/* Offline Ready Badge on Camera View */}
         {isOffline && (
