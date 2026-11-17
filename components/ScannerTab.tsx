@@ -55,6 +55,17 @@ function ArrowTimePicker({ value, onChange, accentColor = 'emerald' }: ArrowTime
   if (hour12 === 0) hour12 = 12;
   const minute = isNaN(rawM) ? 0 : rawM;
 
+  const [hourText, setHourText] = useState(String(hour12).padStart(2, '0'));
+  const [minText, setMinText] = useState(String(minute).padStart(2, '0'));
+
+  useEffect(() => {
+    setHourText(String(hour12).padStart(2, '0'));
+  }, [hour12]);
+
+  useEffect(() => {
+    setMinText(String(minute).padStart(2, '0'));
+  }, [minute]);
+
   const to24 = (h12: number, m: number, p: 'AM' | 'PM') => {
     let h = h12;
     if (p === 'PM' && h < 12) h += 12;
@@ -66,6 +77,7 @@ function ArrowTimePicker({ value, onChange, accentColor = 'emerald' }: ArrowTime
     let newH = hour12 + delta;
     if (newH > 12) newH = 1;
     if (newH < 1) newH = 12;
+    setHourText(String(newH).padStart(2, '0'));
     onChange(to24(newH, minute, period));
   };
 
@@ -90,6 +102,8 @@ function ArrowTimePicker({ value, onChange, accentColor = 'emerald' }: ArrowTime
         newP = newP === 'AM' ? 'PM' : 'AM';
       }
     }
+    setHourText(String(newH).padStart(2, '0'));
+    setMinText(String(newM).padStart(2, '0'));
     onChange(to24(newH, newM, newP));
   };
 
@@ -98,19 +112,106 @@ function ArrowTimePicker({ value, onChange, accentColor = 'emerald' }: ArrowTime
     totalMins = (totalMins % 1440 + 1440) % 1440;
     const nextH = Math.floor(totalMins / 60);
     const nextM = totalMins % 60;
+    const nextP: 'AM' | 'PM' = nextH >= 12 ? 'PM' : 'AM';
+    let nextH12 = nextH % 12;
+    if (nextH12 === 0) nextH12 = 12;
+    setHourText(String(nextH12).padStart(2, '0'));
+    setMinText(String(nextM).padStart(2, '0'));
     onChange(`${String(nextH).padStart(2, '0')}:${String(nextM).padStart(2, '0')}`);
   };
 
   const setNow = () => {
     const now = new Date();
-    onChange(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
+    const curH = now.getHours();
+    const curM = now.getMinutes();
+    const curP: 'AM' | 'PM' = curH >= 12 ? 'PM' : 'AM';
+    let curH12 = curH % 12;
+    if (curH12 === 0) curH12 = 12;
+    setHourText(String(curH12).padStart(2, '0'));
+    setMinText(String(curM).padStart(2, '0'));
+    onChange(`${String(curH).padStart(2, '0')}:${String(curM).padStart(2, '0')}`);
+  };
+
+  const handleHourInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/\D/g, '');
+    if (raw === '') {
+      setHourText('');
+      return;
+    }
+    let num = parseInt(raw, 10);
+    if (num > 12) {
+      if (raw.length > 2) {
+        num = parseInt(raw.slice(-2), 10);
+      }
+      if (num > 12) {
+        num = parseInt(raw.slice(-1), 10) || 12;
+      }
+      if (num === 0) num = 12;
+    }
+    setHourText(String(num));
+    if (num >= 1 && num <= 12) {
+      onChange(to24(num, minute, period));
+    }
+  };
+
+  const handleHourBlur = () => {
+    let num = parseInt(hourText, 10);
+    if (isNaN(num) || num < 1 || num > 12) {
+      num = hour12;
+    }
+    setHourText(String(num).padStart(2, '0'));
+    onChange(to24(num, minute, period));
+  };
+
+  const handleMinInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/\D/g, '');
+    if (raw === '') {
+      setMinText('');
+      return;
+    }
+    let num = parseInt(raw, 10);
+    if (num > 59) {
+      if (raw.length > 2) {
+        num = parseInt(raw.slice(-2), 10);
+      }
+      if (num > 59) num = 59;
+    }
+    setMinText(raw.length === 1 ? raw : String(num).padStart(2, '0'));
+    if (!isNaN(num) && num >= 0 && num <= 59) {
+      onChange(to24(hour12, num, period));
+    }
+  };
+
+  const handleMinBlur = () => {
+    let num = parseInt(minText, 10);
+    if (isNaN(num) || num < 0 || num > 59) {
+      num = minute;
+    }
+    setMinText(String(num).padStart(2, '0'));
+    onChange(to24(hour12, num, period));
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, type: 'hour' | 'min') => {
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      type === 'hour' ? adjustHour(1) : adjustMinute(1);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      type === 'hour' ? adjustHour(-1) : adjustMinute(-1);
+    } else if (e.key === 'a' || e.key === 'A') {
+      e.preventDefault();
+      onChange(to24(hour12, minute, 'AM'));
+    } else if (e.key === 'p' || e.key === 'P') {
+      e.preventDefault();
+      onChange(to24(hour12, minute, 'PM'));
+    }
   };
 
   const isEmerald = accentColor === 'emerald';
 
   return (
     <div className="flex flex-col items-center bg-gray-50/90 border border-gray-200/80 p-3 rounded-2xl select-none w-full">
-      {/* Main Stepper Controls */}
+      {/* Main Stepper Controls with Keyboard Input */}
       <div className="flex items-center justify-center space-x-2.5 sm:space-x-3">
         {/* Hour Column */}
         <div className="flex flex-col items-center">
@@ -122,11 +223,26 @@ function ArrowTimePicker({ value, onChange, accentColor = 'emerald' }: ArrowTime
           >
             <ChevronUp size={20} className="stroke-[3]" />
           </button>
-          <div className="w-14 h-12 my-1 bg-white border-2 border-gray-200 rounded-2xl flex items-center justify-center shadow-inner">
-            <span className="font-mono text-2xl font-black text-gray-900 tracking-wider">
-              {String(hour12).padStart(2, '0')}
-            </span>
-          </div>
+          
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            maxLength={2}
+            value={hourText}
+            onChange={handleHourInputChange}
+            onBlur={handleHourBlur}
+            onFocus={(e) => e.target.select()}
+            onClick={(e) => (e.target as HTMLInputElement).select()}
+            onKeyDown={(e) => handleKeyDown(e, 'hour')}
+            aria-label="Hour input"
+            className={`w-14 h-12 my-1 bg-white border-2 rounded-2xl text-center font-mono text-2xl font-black text-gray-900 tracking-wider shadow-inner outline-none transition-all cursor-text ${
+              isEmerald 
+                ? 'border-gray-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200' 
+                : 'border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
+            }`}
+          />
+
           <button
             type="button"
             onClick={() => adjustHour(-1)}
@@ -153,11 +269,26 @@ function ArrowTimePicker({ value, onChange, accentColor = 'emerald' }: ArrowTime
           >
             <ChevronUp size={20} className="stroke-[3]" />
           </button>
-          <div className="w-14 h-12 my-1 bg-white border-2 border-gray-200 rounded-2xl flex items-center justify-center shadow-inner">
-            <span className="font-mono text-2xl font-black text-gray-900 tracking-wider">
-              {String(minute).padStart(2, '0')}
-            </span>
-          </div>
+
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            maxLength={2}
+            value={minText}
+            onChange={handleMinInputChange}
+            onBlur={handleMinBlur}
+            onFocus={(e) => e.target.select()}
+            onClick={(e) => (e.target as HTMLInputElement).select()}
+            onKeyDown={(e) => handleKeyDown(e, 'min')}
+            aria-label="Minute input"
+            className={`w-14 h-12 my-1 bg-white border-2 rounded-2xl text-center font-mono text-2xl font-black text-gray-900 tracking-wider shadow-inner outline-none transition-all cursor-text ${
+              isEmerald 
+                ? 'border-gray-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200' 
+                : 'border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
+            }`}
+          />
+
           <button
             type="button"
             onClick={() => adjustMinute(-1)}
@@ -913,10 +1044,6 @@ export default function ScannerTab() {
 
       const scanConfig = {
         fps: 10,
-        qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-          const size = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.85);
-          return { width: size, height: size };
-        },
         disableFlip: true
       };
 
@@ -1584,7 +1711,7 @@ export default function ScannerTab() {
       {/* Embedded Square Camera Viewport */}
       <div className="relative w-full aspect-square bg-gray-100 rounded-[32px] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)] border-[6px] border-[#EAF3FF] z-10 mb-8 mt-4">
         
-        <div id="reader" className="w-full h-full [&>video]:object-cover [&>video]:w-full [&>video]:h-full"></div>
+        <div id="reader" className="w-full h-full [&>video]:object-cover [&>video]:w-full [&>video]:h-full [&_#qr-shaded-region]:!hidden [&_svg]:!hidden [&_canvas]:!hidden [&_*]:!border-none"></div>
 
         {/* Loading state before stream starts */}
         {!isScanning && !cameraError && (
