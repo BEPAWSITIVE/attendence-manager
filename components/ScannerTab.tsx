@@ -3,7 +3,7 @@ import { useEffect, useState, useRef } from "react";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { supabase, AttendanceRecord, Employee } from "@/lib/supabase";
 import { localdb } from "@/lib/localdb";
-import { CheckCircle2, AlertCircle, X, Truck, Package, Search, ChevronRight, Loader2, Sparkles, Camera, Flashlight, FlashlightOff, WifiOff, ClipboardList, RefreshCw, Clock, Pencil } from "lucide-react";
+import { CheckCircle2, AlertCircle, X, Truck, Package, Search, ChevronRight, ChevronUp, ChevronDown, Loader2, Sparkles, Camera, Flashlight, FlashlightOff, WifiOff, ClipboardList, RefreshCw, Clock, Pencil } from "lucide-react";
 import { syncOfflineDataBackup, updateCachedEmployee, updateCachedAttendance } from "@/lib/offlineBackup";
 import { getCachedEmployees, getCachedEmployeeById } from "@/lib/employeeCache";
 import { formatTimeForSave, formatTimeForDisplay } from "@/lib/timeFormat";
@@ -32,6 +32,219 @@ const calculateShiftDuration = (inT: string, outT: string): string => {
   const mins = diffMins % 60;
   return `${hrs}h ${mins}m`;
 };
+
+interface ArrowTimePickerProps {
+  value: string; // 24-hour format "HH:mm"
+  onChange: (newValue: string) => void;
+  accentColor?: 'emerald' | 'blue';
+}
+
+function ArrowTimePicker({ value, onChange, accentColor = 'emerald' }: ArrowTimePickerProps) {
+  const currentTime24 = () => {
+    const now = new Date();
+    return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  };
+
+  const val = value || currentTime24();
+  const [hStr, mStr] = val.split(':');
+  let rawH = parseInt(hStr || '0', 10);
+  const rawM = parseInt(mStr || '0', 10);
+
+  const period: 'AM' | 'PM' = rawH >= 12 ? 'PM' : 'AM';
+  let hour12 = rawH % 12;
+  if (hour12 === 0) hour12 = 12;
+  const minute = isNaN(rawM) ? 0 : rawM;
+
+  const to24 = (h12: number, m: number, p: 'AM' | 'PM') => {
+    let h = h12;
+    if (p === 'PM' && h < 12) h += 12;
+    if (p === 'AM' && h === 12) h = 0;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  };
+
+  const adjustHour = (delta: number) => {
+    let newH = hour12 + delta;
+    if (newH > 12) newH = 1;
+    if (newH < 1) newH = 12;
+    onChange(to24(newH, minute, period));
+  };
+
+  const adjustMinute = (delta: number) => {
+    let newM = minute + delta;
+    let newH = hour12;
+    let newP = period;
+
+    if (newM >= 60) {
+      newM = newM % 60;
+      newH += 1;
+      if (newH === 12) {
+        newP = newP === 'AM' ? 'PM' : 'AM';
+      } else if (newH > 12) {
+        newH = 1;
+      }
+    } else if (newM < 0) {
+      newM = (newM % 60 + 60) % 60;
+      newH -= 1;
+      if (newH < 1) {
+        newH = 12;
+        newP = newP === 'AM' ? 'PM' : 'AM';
+      }
+    }
+    onChange(to24(newH, newM, newP));
+  };
+
+  const adjustMinutesDelta = (deltaMinutes: number) => {
+    let totalMins = rawH * 60 + minute + deltaMinutes;
+    totalMins = (totalMins % 1440 + 1440) % 1440;
+    const nextH = Math.floor(totalMins / 60);
+    const nextM = totalMins % 60;
+    onChange(`${String(nextH).padStart(2, '0')}:${String(nextM).padStart(2, '0')}`);
+  };
+
+  const setNow = () => {
+    const now = new Date();
+    onChange(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
+  };
+
+  const isEmerald = accentColor === 'emerald';
+
+  return (
+    <div className="flex flex-col items-center bg-gray-50/90 border border-gray-200/80 p-3 rounded-2xl select-none w-full">
+      {/* Main Stepper Controls */}
+      <div className="flex items-center justify-center space-x-2.5 sm:space-x-3">
+        {/* Hour Column */}
+        <div className="flex flex-col items-center">
+          <button
+            type="button"
+            onClick={() => adjustHour(1)}
+            aria-label="Increase Hour"
+            className="w-12 h-9 flex items-center justify-center rounded-xl bg-white hover:bg-gray-100 active:scale-95 text-gray-700 shadow-2xs border border-gray-200 transition-all cursor-pointer"
+          >
+            <ChevronUp size={20} className="stroke-[3]" />
+          </button>
+          <div className="w-14 h-12 my-1 bg-white border-2 border-gray-200 rounded-2xl flex items-center justify-center shadow-inner">
+            <span className="font-mono text-2xl font-black text-gray-900 tracking-wider">
+              {String(hour12).padStart(2, '0')}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => adjustHour(-1)}
+            aria-label="Decrease Hour"
+            className="w-12 h-9 flex items-center justify-center rounded-xl bg-white hover:bg-gray-100 active:scale-95 text-gray-700 shadow-2xs border border-gray-200 transition-all cursor-pointer"
+          >
+            <ChevronDown size={20} className="stroke-[3]" />
+          </button>
+          <span className="text-[9px] font-bold text-gray-400 mt-0.5 uppercase tracking-wider">Hour</span>
+        </div>
+
+        {/* Separator */}
+        <div className="flex flex-col items-center justify-center pb-4">
+          <span className="font-mono text-2xl font-black text-gray-400">:</span>
+        </div>
+
+        {/* Minute Column */}
+        <div className="flex flex-col items-center">
+          <button
+            type="button"
+            onClick={() => adjustMinute(1)}
+            aria-label="Increase Minute"
+            className="w-12 h-9 flex items-center justify-center rounded-xl bg-white hover:bg-gray-100 active:scale-95 text-gray-700 shadow-2xs border border-gray-200 transition-all cursor-pointer"
+          >
+            <ChevronUp size={20} className="stroke-[3]" />
+          </button>
+          <div className="w-14 h-12 my-1 bg-white border-2 border-gray-200 rounded-2xl flex items-center justify-center shadow-inner">
+            <span className="font-mono text-2xl font-black text-gray-900 tracking-wider">
+              {String(minute).padStart(2, '0')}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => adjustMinute(-1)}
+            aria-label="Decrease Minute"
+            className="w-12 h-9 flex items-center justify-center rounded-xl bg-white hover:bg-gray-100 active:scale-95 text-gray-700 shadow-2xs border border-gray-200 transition-all cursor-pointer"
+          >
+            <ChevronDown size={20} className="stroke-[3]" />
+          </button>
+          <span className="text-[9px] font-bold text-gray-400 mt-0.5 uppercase tracking-wider">Min</span>
+        </div>
+
+        {/* AM / PM Toggle Column */}
+        <div className="flex flex-col justify-center space-y-1.5 pb-4 ml-1">
+          <button
+            type="button"
+            onClick={() => onChange(to24(hour12, minute, 'AM'))}
+            className={`w-12 py-1.5 rounded-xl text-xs font-black transition-all active:scale-95 border cursor-pointer ${
+              period === 'AM'
+                ? isEmerald 
+                  ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
+                  : 'bg-blue-600 text-white border-blue-700 shadow-sm'
+                : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'
+            }`}
+          >
+            AM
+          </button>
+          <button
+            type="button"
+            onClick={() => onChange(to24(hour12, minute, 'PM'))}
+            className={`w-12 py-1.5 rounded-xl text-xs font-black transition-all active:scale-95 border cursor-pointer ${
+              period === 'PM'
+                ? isEmerald 
+                  ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
+                  : 'bg-blue-600 text-white border-blue-700 shadow-sm'
+                : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'
+            }`}
+          >
+            PM
+          </button>
+        </div>
+      </div>
+
+      {/* Quick Action Chips */}
+      <div className="flex items-center justify-center space-x-1 mt-2.5 pt-2 border-t border-gray-200/60 w-full flex-wrap gap-y-1">
+        <button
+          type="button"
+          onClick={() => adjustMinutesDelta(-15)}
+          className="px-2 py-0.5 rounded-lg bg-white hover:bg-gray-100 active:scale-95 text-[10px] font-bold text-gray-600 border border-gray-200 shadow-2xs transition-all cursor-pointer"
+        >
+          -15m
+        </button>
+        <button
+          type="button"
+          onClick={() => adjustMinutesDelta(-5)}
+          className="px-2 py-0.5 rounded-lg bg-white hover:bg-gray-100 active:scale-95 text-[10px] font-bold text-gray-600 border border-gray-200 shadow-2xs transition-all cursor-pointer"
+        >
+          -5m
+        </button>
+        <button
+          type="button"
+          onClick={setNow}
+          className={`px-2 py-0.5 rounded-lg active:scale-95 text-[10px] font-black transition-all shadow-2xs border cursor-pointer ${
+            isEmerald 
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100' 
+              : 'bg-blue-50 text-blue-800 border-blue-300 hover:bg-blue-100'
+          }`}
+        >
+          ● Now
+        </button>
+        <button
+          type="button"
+          onClick={() => adjustMinutesDelta(5)}
+          className="px-2 py-0.5 rounded-lg bg-white hover:bg-gray-100 active:scale-95 text-[10px] font-bold text-gray-600 border border-gray-200 shadow-2xs transition-all cursor-pointer"
+        >
+          +5m
+        </button>
+        <button
+          type="button"
+          onClick={() => adjustMinutesDelta(15)}
+          className="px-2 py-0.5 rounded-lg bg-white hover:bg-gray-100 active:scale-95 text-[10px] font-bold text-gray-600 border border-gray-200 shadow-2xs transition-all cursor-pointer"
+        >
+          +15m
+        </button>
+      </div>
+    </div>
+  );
+}
 
 const convertTo24Hour = (timeStr: string): string => {
   if (!timeStr) return "";
@@ -170,6 +383,7 @@ export default function ScannerTab() {
     outTime: string;
   } | null>(null);
   const [isSavingScanEdit, setIsSavingScanEdit] = useState(false);
+  const [showInTimeEditorInOutMode, setShowInTimeEditorInOutMode] = useState(false);
 
   const updateTodayRecord = (record: AttendanceRecord) => {
     const todayStr = new Date().toISOString().split('T')[0];
@@ -1299,15 +1513,6 @@ export default function ScannerTab() {
           </div>
         )}
 
-        {/* Cyan Brackets Overlay */}
-        <div className="absolute inset-[7.5%] pointer-events-none">
-          <div className="w-full h-full relative">
-            <div className="absolute top-0 left-0 w-12 h-12 border-t-[4px] border-l-[4px] border-[#38bdf8] rounded-tl-3xl"></div>
-            <div className="absolute top-0 right-0 w-12 h-12 border-t-[4px] border-r-[4px] border-[#38bdf8] rounded-tr-3xl"></div>
-            <div className="absolute bottom-0 left-0 w-12 h-12 border-b-[4px] border-l-[4px] border-[#38bdf8] rounded-bl-3xl"></div>
-            <div className="absolute bottom-0 right-0 w-12 h-12 border-b-[4px] border-r-[4px] border-[#38bdf8] rounded-br-3xl"></div>
-          </div>
-        </div>
 
         {/* Flashlight / Torch Toggle Button */}
         {isScanning && (
@@ -1832,41 +2037,34 @@ export default function ScannerTab() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">
+                <label className="block text-xs font-bold text-gray-700 mb-1.5 text-center">
                   Entry Time (Check-In) *
                 </label>
-                <div className="relative">
-                  <input
-                    type="time"
-                    value={newInTimeValue}
-                    onChange={(e) => setNewInTimeValue(e.target.value)}
-                    className="w-full bg-white border-2 border-emerald-300 focus:border-emerald-500 p-3 rounded-2xl outline-none font-mono text-xl font-bold text-gray-800 text-center tracking-wider shadow-inner"
-                    required
-                  />
-                </div>
+                <ArrowTimePicker
+                  value={newInTimeValue}
+                  onChange={setNewInTimeValue}
+                  accentColor="emerald"
+                />
                 {newInTimeValue && (
                   <p className="text-center text-xs font-bold text-emerald-700 mt-2">
-                    Formatted: {formatTo12Hour(newInTimeValue)}
+                    Selected: {formatTo12Hour(newInTimeValue)}
                   </p>
                 )}
               </div>
 
               {(editingInTimeRecord.status === 'OUT' || editingInTimeRecord.outTime) && (
                 <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">
+                  <label className="block text-xs font-bold text-gray-700 mb-1.5 text-center">
                     Exit Time (Check-Out)
                   </label>
-                  <div className="relative">
-                    <input
-                      type="time"
-                      value={newOutTimeValue}
-                      onChange={(e) => setNewOutTimeValue(e.target.value)}
-                      className="w-full bg-white border-2 border-blue-300 focus:border-blue-500 p-3 rounded-2xl outline-none font-mono text-xl font-bold text-gray-800 text-center tracking-wider shadow-inner"
-                    />
-                  </div>
+                  <ArrowTimePicker
+                    value={newOutTimeValue}
+                    onChange={setNewOutTimeValue}
+                    accentColor="blue"
+                  />
                   {newOutTimeValue && (
                     <p className="text-center text-xs font-bold text-blue-700 mt-2">
-                      Formatted: {formatTo12Hour(newOutTimeValue)}
+                      Selected: {formatTo12Hour(newOutTimeValue)}
                     </p>
                   )}
                   {newInTimeValue && newOutTimeValue && (
@@ -1979,6 +2177,7 @@ export default function ScannerTab() {
                 <button
                   type="button"
                   onClick={() => {
+                    setShowInTimeEditorInOutMode(false);
                     const now = new Date();
                     const hh = String(now.getHours()).padStart(2, '0');
                     const mm = String(now.getMinutes()).padStart(2, '0');
@@ -1999,6 +2198,7 @@ export default function ScannerTab() {
                 <button
                   type="button"
                   onClick={() => {
+                    setShowInTimeEditorInOutMode(false);
                     const now = new Date();
                     const hh = String(now.getHours()).padStart(2, '0');
                     const mm = String(now.getMinutes()).padStart(2, '0');
@@ -2023,33 +2223,17 @@ export default function ScannerTab() {
             <form onSubmit={handleSaveScanEdit} className="p-5 space-y-4 overflow-y-auto">
               {scanTimeEditModal.mode === 'IN' ? (
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-bold text-gray-700">
-                      Check-In Time *
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const now = new Date();
-                        const hh = String(now.getHours()).padStart(2, '0');
-                        const mm = String(now.getMinutes()).padStart(2, '0');
-                        setScanTimeEditModal(prev => prev ? ({ ...prev, inTime: `${hh}:${mm}` }) : null);
-                      }}
-                      className="text-[11px] font-bold text-emerald-600 hover:text-emerald-800 flex items-center"
-                    >
-                      Set to Now
-                    </button>
-                  </div>
-                  <input
-                    type="time"
+                  <label className="block text-xs font-bold text-gray-700 mb-1.5 text-center">
+                    Select Check-In Time
+                  </label>
+                  <ArrowTimePicker
                     value={scanTimeEditModal.inTime}
-                    onChange={(e) => setScanTimeEditModal(prev => prev ? ({ ...prev, inTime: e.target.value }) : null)}
-                    className="w-full bg-emerald-50/50 border-2 border-emerald-300 focus:border-emerald-500 p-3 rounded-2xl outline-none font-mono text-2xl font-bold text-gray-800 text-center tracking-wider shadow-inner"
-                    required
+                    onChange={(newVal) => setScanTimeEditModal(prev => prev ? ({ ...prev, inTime: newVal }) : null)}
+                    accentColor="emerald"
                   />
                   {scanTimeEditModal.inTime && (
-                    <p className="text-center text-xs font-bold text-emerald-700 mt-1.5">
-                      Formatted: {formatTo12Hour(scanTimeEditModal.inTime)}
+                    <p className="text-center text-xs font-bold text-emerald-700 mt-2">
+                      Selected: {formatTo12Hour(scanTimeEditModal.inTime)}
                     </p>
                   )}
                   {scanTimeEditModal.lastRecord && scanTimeEditModal.lastRecord.status === 'IN' && (
@@ -2060,54 +2244,49 @@ export default function ScannerTab() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {/* In Time Reference/Edit */}
-                  <div>
-                    <label className="block text-[11px] font-bold text-gray-500 mb-1">
-                      Check-In Time {scanTimeEditModal.lastRecord?.status === 'IN' ? '(Recorded)' : '*'}
-                    </label>
-                    <input
-                      type="time"
-                      value={scanTimeEditModal.inTime}
-                      onChange={(e) => setScanTimeEditModal(prev => prev ? ({ ...prev, inTime: e.target.value }) : null)}
-                      className="w-full bg-gray-50 border border-gray-200 focus:border-blue-400 p-2.5 rounded-xl outline-none font-mono text-base font-bold text-gray-700 text-center"
-                      required
-                    />
-                    {scanTimeEditModal.inTime && (
-                      <p className="text-center text-[10px] text-gray-500 font-semibold mt-0.5">
-                        In: {formatTo12Hour(scanTimeEditModal.inTime)}
-                      </p>
-                    )}
+                  {/* In Time Display with optional edit */}
+                  <div className="bg-gray-50 border border-gray-200/80 p-2.5 rounded-xl flex items-center justify-between text-xs">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-gray-400 block">Check-In Time</span>
+                      <span className="font-mono text-sm font-bold text-gray-800">
+                        {scanTimeEditModal.inTime ? formatTo12Hour(scanTimeEditModal.inTime) : (scanTimeEditModal.lastRecord?.inTime || '--')}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowInTimeEditorInOutMode(!showInTimeEditorInOutMode)}
+                      className="text-[11px] font-bold text-blue-600 hover:text-blue-800 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors"
+                    >
+                      {showInTimeEditorInOutMode ? "Done Adjusting" : "Adjust In-Time"}
+                    </button>
                   </div>
+
+                  {showInTimeEditorInOutMode && (
+                    <div className="p-2.5 bg-emerald-50/50 rounded-2xl border border-emerald-200 animate-fade-in">
+                      <label className="block text-[11px] font-bold text-emerald-800 mb-1 text-center">
+                        Adjust Check-In Time
+                      </label>
+                      <ArrowTimePicker
+                        value={scanTimeEditModal.inTime}
+                        onChange={(newVal) => setScanTimeEditModal(prev => prev ? ({ ...prev, inTime: newVal }) : null)}
+                        accentColor="emerald"
+                      />
+                    </div>
+                  )}
 
                   {/* Out Time Edit */}
                   <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-xs font-bold text-gray-700">
-                        Check-Out Time *
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const now = new Date();
-                          const hh = String(now.getHours()).padStart(2, '0');
-                          const mm = String(now.getMinutes()).padStart(2, '0');
-                          setScanTimeEditModal(prev => prev ? ({ ...prev, outTime: `${hh}:${mm}` }) : null);
-                        }}
-                        className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center"
-                      >
-                        Set to Now
-                      </button>
-                    </div>
-                    <input
-                      type="time"
+                    <label className="block text-xs font-bold text-gray-700 mb-1.5 text-center">
+                      Select Check-Out Time
+                    </label>
+                    <ArrowTimePicker
                       value={scanTimeEditModal.outTime}
-                      onChange={(e) => setScanTimeEditModal(prev => prev ? ({ ...prev, outTime: e.target.value }) : null)}
-                      className="w-full bg-blue-50/50 border-2 border-blue-300 focus:border-blue-500 p-3 rounded-2xl outline-none font-mono text-2xl font-bold text-gray-800 text-center tracking-wider shadow-inner"
-                      required
+                      onChange={(newVal) => setScanTimeEditModal(prev => prev ? ({ ...prev, outTime: newVal }) : null)}
+                      accentColor="blue"
                     />
                     {scanTimeEditModal.outTime && (
-                      <p className="text-center text-xs font-bold text-blue-700 mt-1.5">
-                        Formatted: {formatTo12Hour(scanTimeEditModal.outTime)}
+                      <p className="text-center text-xs font-bold text-blue-700 mt-2">
+                        Selected: {formatTo12Hour(scanTimeEditModal.outTime)}
                       </p>
                     )}
                   </div>
