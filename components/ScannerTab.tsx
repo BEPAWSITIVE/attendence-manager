@@ -13,12 +13,24 @@ const getCachedProfile = (id: string): Employee | null => {
   return getCachedEmployeeById(id);
 };
 
-const isEntryTimeEditAllowed = (empId: string): boolean => {
-  const profile = getCachedProfile(empId);
+const isEntryTimeEditAllowed = (empId: string, empObj?: Employee | null): boolean => {
+  const profile = empObj || getCachedProfile(empId);
   if (!profile) return false;
   if (profile.allow_entry_time_edit === true) return true;
   if (typeof profile.group_members === 'string' && profile.group_members.includes('__ALLOW_ENTRY_TIME_EDIT__')) return true;
   return false;
+};
+
+const calculateShiftDuration = (inT: string, outT: string): string => {
+  if (!inT || !outT) return "";
+  const [inH, inM] = inT.split(':').map(Number);
+  const [outH, outM] = outT.split(':').map(Number);
+  if (isNaN(inH) || isNaN(inM) || isNaN(outH) || isNaN(outM)) return "";
+  let diffMins = (outH * 60 + outM) - (inH * 60 + inM);
+  if (diffMins < 0) diffMins += 24 * 60;
+  const hrs = Math.floor(diffMins / 60);
+  const mins = diffMins % 60;
+  return `${hrs}h ${mins}m`;
 };
 
 const convertTo24Hour = (timeStr: string): string => {
@@ -142,10 +154,22 @@ export default function ScannerTab() {
   const [todaySearch, setTodaySearch] = useState("");
   const [isLoadingToday, setIsLoadingToday] = useState(false);
 
-  // Guard Edit Entry Time States
+  // Guard Edit Entry Time States (Daily Attendance section)
   const [editingInTimeRecord, setEditingInTimeRecord] = useState<AttendanceRecord | null>(null);
   const [newInTimeValue, setNewInTimeValue] = useState("");
+  const [newOutTimeValue, setNewOutTimeValue] = useState("");
   const [isSavingInTime, setIsSavingInTime] = useState(false);
+
+  // Guard Scan Time Edit Modal State (Immediate popup upon scanning editable staff)
+  const [scanTimeEditModal, setScanTimeEditModal] = useState<{
+    profile: Employee;
+    mode: 'IN' | 'OUT';
+    lastRecord: AttendanceRecord | null;
+    dateStr: string;
+    inTime: string;
+    outTime: string;
+  } | null>(null);
+  const [isSavingScanEdit, setIsSavingScanEdit] = useState(false);
 
   const updateTodayRecord = (record: AttendanceRecord) => {
     const todayStr = new Date().toISOString().split('T')[0];
@@ -250,14 +274,20 @@ export default function ScannerTab() {
 
   const handleOpenEditInTime = (record: AttendanceRecord) => {
     setEditingInTimeRecord(record);
-    const val24 = convertTo24Hour(record.inTime);
-    if (val24) {
-      setNewInTimeValue(val24);
+    const valIn24 = convertTo24Hour(record.inTime);
+    if (valIn24) {
+      setNewInTimeValue(valIn24);
     } else {
       const now = new Date();
       const hh = String(now.getHours()).padStart(2, '0');
       const mm = String(now.getMinutes()).padStart(2, '0');
       setNewInTimeValue(`${hh}:${mm}`);
+    }
+
+    if (record.outTime) {
+      setNewOutTimeValue(convertTo24Hour(record.outTime));
+    } else {
+      setNewOutTimeValue("");
     }
   };
 
@@ -284,8 +314,25 @@ export default function ScannerTab() {
       const newInTimestamp = newInDate.getTime();
 
       let newTotalHours = editingInTimeRecord.totalHours;
-      if (editingInTimeRecord.outTimestamp && editingInTimeRecord.status === 'OUT') {
-        const diffMs = Math.max(0, editingInTimeRecord.outTimestamp - newInTimestamp);
+      let newOutTimestamp = editingInTimeRecord.outTimestamp;
+      let formattedOut12 = editingInTimeRecord.outTime;
+
+      if (newOutTimeValue && editingInTimeRecord.status === 'OUT') {
+        formattedOut12 = formatTo12Hour(newOutTimeValue);
+        const [outHhStr, outMmStr] = newOutTimeValue.split(':');
+        const newOutDate = new Date(
+          parseInt(dateParts[0], 10),
+          parseInt(dateParts[1], 10) - 1,
+          parseInt(dateParts[2], 10),
+          parseInt(outHhStr, 10),
+          parseInt(outMmStr, 10),
+          0
+        );
+        newOutTimestamp = newOutDate.getTime();
+      }
+
+      if (newOutTimestamp && editingInTimeRecord.status === 'OUT') {
+        const diffMs = Math.max(0, newOutTimestamp - newInTimestamp);
         const hrs = Math.floor(diffMs / 3600000);
         const mins = Math.floor((diffMs % 3600000) / 60000);
         newTotalHours = `${hrs}h ${mins}m`;
@@ -295,6 +342,8 @@ export default function ScannerTab() {
         ...editingInTimeRecord,
         inTime: formatted12,
         inTimestamp: newInTimestamp,
+        outTime: formattedOut12,
+        outTimestamp: newOutTimestamp,
         totalHours: newTotalHours,
         isSynced: navigator.onLine ? 1 : 0,
         updatedAt: new Date().toISOString()
@@ -306,6 +355,8 @@ export default function ScannerTab() {
           .update({
             inTime: updatedRecord.inTime,
             inTimestamp: updatedRecord.inTimestamp,
+            outTime: updatedRecord.outTime || null,
+            outTimestamp: updatedRecord.outTimestamp || null,
             totalHours: updatedRecord.totalHours || null,
             isSynced: 1,
             updatedAt: updatedRecord.updatedAt
@@ -323,10 +374,203 @@ export default function ScannerTab() {
       playSuccessSound();
       setEditingInTimeRecord(null);
     } catch (err: any) {
-      console.error("Failed to update entry time:", err);
-      alert("Error updating entry time: " + (err.message || String(err)));
+      console.error("Failed to update attendance time:", err);
+      alert("Error updating attendance time: " + (err.message || String(err)));
     } finally {
       setIsSavingInTime(false);
+    }
+  };
+
+  const handleCancelScanEdit = () => {
+    setScanTimeEditModal(null);
+    if (scannerRef.current) {
+      try {
+        scannerRef.current.resume();
+      } catch (e) {}
+    }
+  };
+
+  const handleSaveScanEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!scanTimeEditModal) return;
+
+    const { profile, mode, lastRecord, dateStr, inTime, outTime } = scanTimeEditModal;
+    setIsSavingScanEdit(true);
+
+    try {
+      const [year, month, day] = dateStr.split('-').map(Number);
+
+      if (mode === 'IN') {
+        if (!inTime) throw new Error("Please enter an In Time");
+        const formattedIn12 = formatTo12Hour(inTime);
+        const [hhStr, mmStr] = inTime.split(':');
+        const inDate = new Date(year, month - 1, day, parseInt(hhStr, 10), parseInt(mmStr, 10), 0);
+        const inTimestamp = inDate.getTime();
+
+        if (lastRecord && lastRecord.status === 'IN') {
+          // Guard is updating the active session's check-in time
+          const updatedRecord: AttendanceRecord = {
+            ...lastRecord,
+            inTime: formattedIn12,
+            inTimestamp: inTimestamp,
+            isSynced: navigator.onLine ? 1 : 0,
+            updatedAt: new Date().toISOString()
+          };
+
+          if (navigator.onLine) {
+            const { error } = await supabase
+              .from('attendance')
+              .update({
+                inTime: updatedRecord.inTime,
+                inTimestamp: updatedRecord.inTimestamp,
+                isSynced: 1,
+                updatedAt: updatedRecord.updatedAt
+              })
+              .eq('recordId', updatedRecord.recordId);
+            if (error) throw error;
+          } else {
+            await localdb.syncQueue.put(updatedRecord);
+          }
+
+          updateCachedAttendance(updatedRecord);
+          updateTodayRecord(updatedRecord);
+
+          playSuccessSound();
+          setScanResult({
+            success: true,
+            msg: `${profile.name} Check IN Updated to ${formattedIn12}` + (navigator.onLine ? '' : ' (Offline)')
+          });
+        } else {
+          // Creating a new IN record
+          const newRecord: AttendanceRecord = {
+            recordId: crypto.randomUUID(),
+            empId: profile.empId,
+            empName: profile.name,
+            department: profile.department,
+            category: profile.category || 'Staff',
+            date: dateStr,
+            inTime: formattedIn12,
+            inTimestamp: inTimestamp,
+            status: 'IN',
+            isSynced: navigator.onLine ? 1 : 0,
+            updatedAt: new Date().toISOString()
+          };
+
+          if (navigator.onLine) {
+            const { error } = await supabase.from('attendance').insert([newRecord]);
+            if (error) throw error;
+          } else {
+            await localdb.syncQueue.put(newRecord);
+          }
+
+          updateCachedAttendance(newRecord);
+          updateTodayRecord(newRecord);
+
+          playSuccessSound();
+          setScanResult({
+            success: true,
+            msg: `${profile.name} Checked IN at ${formattedIn12}` + (navigator.onLine ? '' : ' (Offline)')
+          });
+        }
+      } else {
+        // Mode === 'OUT'
+        if (!outTime) throw new Error("Please enter an Out Time");
+        const formattedOut12 = formatTo12Hour(outTime);
+        const [outHhStr, outMmStr] = outTime.split(':');
+        const outDate = new Date(year, month - 1, day, parseInt(outHhStr, 10), parseInt(outMmStr, 10), 0);
+        const outTimestamp = outDate.getTime();
+
+        let effectiveInTime = inTime ? formatTo12Hour(inTime) : (lastRecord?.inTime || formattedOut12);
+        let effectiveInTimestamp = lastRecord?.inTimestamp;
+        if (inTime) {
+          const [inHhStr, inMmStr] = inTime.split(':');
+          const inDate = new Date(year, month - 1, day, parseInt(inHhStr, 10), parseInt(inMmStr, 10), 0);
+          effectiveInTimestamp = inDate.getTime();
+        } else if (!effectiveInTimestamp) {
+          effectiveInTimestamp = outTimestamp;
+        }
+
+        const diffMs = Math.max(0, outTimestamp - effectiveInTimestamp);
+        const hrs = Math.floor(diffMs / 3600000);
+        const mins = Math.floor((diffMs % 3600000) / 60000);
+        const totalHours = `${hrs}h ${mins}m`;
+
+        if (lastRecord && lastRecord.status === 'IN') {
+          const updatedRecord: AttendanceRecord = {
+            ...lastRecord,
+            empName: profile.name || lastRecord.empName,
+            department: profile.department || lastRecord.department,
+            category: profile.category || lastRecord.category || 'Staff',
+            inTime: effectiveInTime,
+            inTimestamp: effectiveInTimestamp,
+            outTime: formattedOut12,
+            outTimestamp: outTimestamp,
+            totalHours: totalHours,
+            status: 'OUT',
+            isSynced: navigator.onLine ? 1 : 0,
+            updatedAt: new Date().toISOString()
+          };
+
+          if (navigator.onLine) {
+            const { error } = await supabase.from('attendance').update(updatedRecord).eq('recordId', lastRecord.recordId);
+            if (error) throw error;
+          } else {
+            await localdb.syncQueue.put(updatedRecord);
+          }
+
+          updateCachedAttendance(updatedRecord);
+          updateTodayRecord(updatedRecord);
+        } else {
+          // Completed record created directly
+          const newRecord: AttendanceRecord = {
+            recordId: crypto.randomUUID(),
+            empId: profile.empId,
+            empName: profile.name,
+            department: profile.department,
+            category: profile.category || 'Staff',
+            date: dateStr,
+            inTime: effectiveInTime,
+            inTimestamp: effectiveInTimestamp,
+            outTime: formattedOut12,
+            outTimestamp: outTimestamp,
+            totalHours: totalHours,
+            status: 'OUT',
+            isSynced: navigator.onLine ? 1 : 0,
+            updatedAt: new Date().toISOString()
+          };
+
+          if (navigator.onLine) {
+            const { error } = await supabase.from('attendance').insert([newRecord]);
+            if (error) throw error;
+          } else {
+            await localdb.syncQueue.put(newRecord);
+          }
+
+          updateCachedAttendance(newRecord);
+          updateTodayRecord(newRecord);
+        }
+
+        playSuccessSound();
+        setScanResult({
+          success: true,
+          msg: `${profile.name} Checked OUT at ${formattedOut12} (${totalHours})` + (navigator.onLine ? '' : ' (Offline)')
+        });
+      }
+
+      setScanTimeEditModal(null);
+
+      setTimeout(() => {
+        setScanResult(null);
+        if (scannerRef.current) {
+          try { scannerRef.current.resume(); } catch (e) {}
+        }
+      }, 2500);
+
+    } catch (err: any) {
+      console.error("Failed to save scan time edit:", err);
+      alert("Error saving attendance: " + (err.message || String(err)));
+    } finally {
+      setIsSavingScanEdit(false);
     }
   };
 
@@ -579,6 +823,29 @@ export default function ScannerTab() {
       
       if (emp.category === 'Parcel' && lastRecord && lastRecord.status === 'IN') {
         setParcelModal({ profile: emp, lastRecord });
+        return;
+      }
+
+      // Check if this staff member has editable check-in/out attendance timing
+      if (isEntryTimeEditAllowed(emp.empId, emp)) {
+        const isCurrentlyIn = lastRecord && lastRecord.status === 'IN';
+        const initialMode: 'IN' | 'OUT' = isCurrentlyIn ? 'OUT' : 'IN';
+        
+        const now = new Date();
+        const hh = String(now.getHours()).padStart(2, '0');
+        const mm = String(now.getMinutes()).padStart(2, '0');
+        const currentTime24 = `${hh}:${mm}`;
+
+        const existingIn24 = (lastRecord && lastRecord.inTime) ? convertTo24Hour(lastRecord.inTime) : currentTime24;
+        
+        setScanTimeEditModal({
+          profile: emp,
+          mode: initialMode,
+          lastRecord: lastRecord,
+          dateStr: dateStr,
+          inTime: isCurrentlyIn ? existingIn24 : currentTime24,
+          outTime: isCurrentlyIn ? currentTime24 : ''
+        });
         return;
       }
 
@@ -1159,7 +1426,7 @@ export default function ScannerTab() {
       )}
 
       {/* Result Toast */}
-      {scanResult && !vehicleModal && !parcelModal && (
+      {scanResult && !vehicleModal && !parcelModal && !scanTimeEditModal && (
         <div className="fixed top-8 left-0 right-0 px-4 z-[110] flex justify-center animate-bounce-in">
           <div className={`px-5 py-4 rounded-2xl shadow-2xl flex items-center space-x-3 w-full max-w-sm
             ${scanResult.success 
@@ -1462,12 +1729,24 @@ export default function ScannerTab() {
                         <div className="flex items-center space-x-1.5">
                           <span className="text-[10px] uppercase font-semibold text-gray-400 font-sans">OUT:</span>
                           {r.outTime || r.outTimestamp != null ? (
-                            <span className="font-bold text-gray-800">
-                              {formatTimeForDisplay(r.outTime, r.outTimestamp)}
+                            <span className="font-bold text-gray-800 flex items-center flex-wrap gap-1">
+                              <span>{formatTimeForDisplay(r.outTime, r.outTimestamp)}</span>
                               {r.totalHours && (
-                                <span className="text-[10px] font-sans text-gray-500 ml-1.5 font-normal">
+                                <span className="text-[10px] font-sans text-gray-500 font-normal">
                                   ({r.totalHours})
                                 </span>
+                              )}
+                              {isEntryTimeEditAllowed(r.empId) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditInTime(r)}
+                                  className="ml-1 px-2 py-0.5 bg-blue-100 hover:bg-blue-200 active:bg-blue-300 text-blue-900 border border-blue-300 rounded-lg text-[10px] font-bold font-sans flex items-center space-x-1 transition-all active:scale-95 shadow-2xs"
+                                  title="Edit Exit Time"
+                                  aria-label={`Edit exit time for ${r.empName}`}
+                                >
+                                  <Pencil size={10} className="text-blue-700 shrink-0" />
+                                  <span>Edit</span>
+                                </button>
                               )}
                             </span>
                           ) : (
@@ -1554,7 +1833,7 @@ export default function ScannerTab() {
 
               <div>
                 <label className="block text-xs font-bold text-gray-700 mb-1">
-                  Select New Entry Time *
+                  Entry Time (Check-In) *
                 </label>
                 <div className="relative">
                   <input
@@ -1571,6 +1850,32 @@ export default function ScannerTab() {
                   </p>
                 )}
               </div>
+
+              {(editingInTimeRecord.status === 'OUT' || editingInTimeRecord.outTime) && (
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">
+                    Exit Time (Check-Out)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="time"
+                      value={newOutTimeValue}
+                      onChange={(e) => setNewOutTimeValue(e.target.value)}
+                      className="w-full bg-white border-2 border-blue-300 focus:border-blue-500 p-3 rounded-2xl outline-none font-mono text-xl font-bold text-gray-800 text-center tracking-wider shadow-inner"
+                    />
+                  </div>
+                  {newOutTimeValue && (
+                    <p className="text-center text-xs font-bold text-blue-700 mt-2">
+                      Formatted: {formatTo12Hour(newOutTimeValue)}
+                    </p>
+                  )}
+                  {newInTimeValue && newOutTimeValue && (
+                    <div className="mt-2 p-2 bg-blue-50 border border-blue-100 rounded-xl text-center text-xs font-bold text-blue-800">
+                      Total: {calculateShiftDuration(newInTimeValue, newOutTimeValue)}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Action Buttons */}
               <div className="flex space-x-2 pt-2">
@@ -1593,7 +1898,258 @@ export default function ScannerTab() {
                       Saving...
                     </>
                   ) : (
-                    'Save New Time'
+                    'Save Changes'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Guard Scan Time Edit Modal (Immediate popup on scan for editable staff) */}
+      {scanTimeEditModal && (
+        <div className="fixed inset-0 z-[140] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl relative border border-gray-100 flex flex-col max-h-[92vh]">
+            {/* Header */}
+            <div className={`p-4 text-white flex items-center justify-between transition-colors ${
+              scanTimeEditModal.mode === 'IN' 
+                ? 'bg-gradient-to-r from-emerald-600 to-teal-700' 
+                : 'bg-gradient-to-r from-blue-600 to-indigo-700'
+            }`}>
+              <div className="flex items-center space-x-3">
+                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center text-white shadow-inner">
+                  <Clock size={20} />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm sm:text-base leading-tight">
+                    {scanTimeEditModal.mode === 'IN' ? 'Staff Check IN' : 'Staff Check OUT'}
+                  </h3>
+                  <p className="text-[11px] text-white/80 mt-0.5">
+                    Editable Timing • {scanTimeEditModal.mode === 'IN' ? 'Punch In Time' : 'Punch Out Time'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCancelScanEdit}
+                className="p-1.5 rounded-full hover:bg-white/20 text-white/80 hover:text-white transition-colors"
+                disabled={isSavingScanEdit}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Staff Info Banner */}
+            <div className="p-3.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+              <div className="flex items-center space-x-3 min-w-0">
+                <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-800 font-extrabold flex items-center justify-center text-sm shrink-0 border border-emerald-200">
+                  {scanTimeEditModal.profile.name?.charAt(0)?.toUpperCase() || '?'}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center space-x-1.5">
+                    <p className="font-extrabold text-gray-900 text-sm truncate">{scanTimeEditModal.profile.name}</p>
+                    <span className="text-[9px] uppercase font-bold bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded shrink-0">
+                      {scanTimeEditModal.profile.category || 'Staff'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 font-mono mt-0.5 truncate">
+                    {scanTimeEditModal.profile.empId} • {scanTimeEditModal.profile.department || 'Staff'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Status Indicator */}
+              <div className="shrink-0 text-right">
+                {scanTimeEditModal.lastRecord && scanTimeEditModal.lastRecord.status === 'IN' ? (
+                  <span className="inline-flex items-center text-[10px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                    ● IN ({formatTimeForDisplay(scanTimeEditModal.lastRecord.inTime)})
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center text-[10px] font-extrabold text-gray-600 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-full">
+                    ○ Currently OUT
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Mode Switcher Tabs */}
+            <div className="px-5 pt-4">
+              <div className="grid grid-cols-2 p-1 bg-gray-100 rounded-2xl text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const now = new Date();
+                    const hh = String(now.getHours()).padStart(2, '0');
+                    const mm = String(now.getMinutes()).padStart(2, '0');
+                    setScanTimeEditModal(prev => prev ? ({
+                      ...prev,
+                      mode: 'IN',
+                      inTime: prev.inTime || `${hh}:${mm}`
+                    }) : null);
+                  }}
+                  className={`py-2 rounded-xl transition-all font-bold ${
+                    scanTimeEditModal.mode === 'IN'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  ● Check IN
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const now = new Date();
+                    const hh = String(now.getHours()).padStart(2, '0');
+                    const mm = String(now.getMinutes()).padStart(2, '0');
+                    setScanTimeEditModal(prev => prev ? ({
+                      ...prev,
+                      mode: 'OUT',
+                      outTime: prev.outTime || `${hh}:${mm}`
+                    }) : null);
+                  }}
+                  className={`py-2 rounded-xl transition-all font-bold ${
+                    scanTimeEditModal.mode === 'OUT'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  ○ Check OUT
+                </button>
+              </div>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSaveScanEdit} className="p-5 space-y-4 overflow-y-auto">
+              {scanTimeEditModal.mode === 'IN' ? (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-gray-700">
+                      Check-In Time *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const now = new Date();
+                        const hh = String(now.getHours()).padStart(2, '0');
+                        const mm = String(now.getMinutes()).padStart(2, '0');
+                        setScanTimeEditModal(prev => prev ? ({ ...prev, inTime: `${hh}:${mm}` }) : null);
+                      }}
+                      className="text-[11px] font-bold text-emerald-600 hover:text-emerald-800 flex items-center"
+                    >
+                      Set to Now
+                    </button>
+                  </div>
+                  <input
+                    type="time"
+                    value={scanTimeEditModal.inTime}
+                    onChange={(e) => setScanTimeEditModal(prev => prev ? ({ ...prev, inTime: e.target.value }) : null)}
+                    className="w-full bg-emerald-50/50 border-2 border-emerald-300 focus:border-emerald-500 p-3 rounded-2xl outline-none font-mono text-2xl font-bold text-gray-800 text-center tracking-wider shadow-inner"
+                    required
+                  />
+                  {scanTimeEditModal.inTime && (
+                    <p className="text-center text-xs font-bold text-emerald-700 mt-1.5">
+                      Formatted: {formatTo12Hour(scanTimeEditModal.inTime)}
+                    </p>
+                  )}
+                  {scanTimeEditModal.lastRecord && scanTimeEditModal.lastRecord.status === 'IN' && (
+                    <p className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded-xl border border-amber-200 mt-2 text-center font-medium">
+                      Note: Updating this will adjust the active Check-In time for today.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {/* In Time Reference/Edit */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-500 mb-1">
+                      Check-In Time {scanTimeEditModal.lastRecord?.status === 'IN' ? '(Recorded)' : '*'}
+                    </label>
+                    <input
+                      type="time"
+                      value={scanTimeEditModal.inTime}
+                      onChange={(e) => setScanTimeEditModal(prev => prev ? ({ ...prev, inTime: e.target.value }) : null)}
+                      className="w-full bg-gray-50 border border-gray-200 focus:border-blue-400 p-2.5 rounded-xl outline-none font-mono text-base font-bold text-gray-700 text-center"
+                      required
+                    />
+                    {scanTimeEditModal.inTime && (
+                      <p className="text-center text-[10px] text-gray-500 font-semibold mt-0.5">
+                        In: {formatTo12Hour(scanTimeEditModal.inTime)}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Out Time Edit */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-bold text-gray-700">
+                        Check-Out Time *
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const now = new Date();
+                          const hh = String(now.getHours()).padStart(2, '0');
+                          const mm = String(now.getMinutes()).padStart(2, '0');
+                          setScanTimeEditModal(prev => prev ? ({ ...prev, outTime: `${hh}:${mm}` }) : null);
+                        }}
+                        className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center"
+                      >
+                        Set to Now
+                      </button>
+                    </div>
+                    <input
+                      type="time"
+                      value={scanTimeEditModal.outTime}
+                      onChange={(e) => setScanTimeEditModal(prev => prev ? ({ ...prev, outTime: e.target.value }) : null)}
+                      className="w-full bg-blue-50/50 border-2 border-blue-300 focus:border-blue-500 p-3 rounded-2xl outline-none font-mono text-2xl font-bold text-gray-800 text-center tracking-wider shadow-inner"
+                      required
+                    />
+                    {scanTimeEditModal.outTime && (
+                      <p className="text-center text-xs font-bold text-blue-700 mt-1.5">
+                        Formatted: {formatTo12Hour(scanTimeEditModal.outTime)}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Live Duration Calculation */}
+                  {scanTimeEditModal.inTime && scanTimeEditModal.outTime && (
+                    <div className="p-2.5 bg-blue-50 border border-blue-100 rounded-xl flex items-center justify-between text-xs">
+                      <span className="font-bold text-blue-800">Total Shift Duration:</span>
+                      <span className="font-mono font-extrabold text-blue-900 bg-white px-2.5 py-0.5 rounded-lg border border-blue-200">
+                        {calculateShiftDuration(scanTimeEditModal.inTime, scanTimeEditModal.outTime) || '0h 0m'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={handleCancelScanEdit}
+                  disabled={isSavingScanEdit}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl font-bold text-xs transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingScanEdit || (scanTimeEditModal.mode === 'IN' ? !scanTimeEditModal.inTime : !scanTimeEditModal.outTime)}
+                  className={`flex-1 text-white py-3 rounded-xl font-bold text-xs shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center ${
+                    scanTimeEditModal.mode === 'IN'
+                      ? 'bg-emerald-600 hover:bg-emerald-700'
+                      : 'bg-blue-600 hover:bg-blue-700'
+                  }`}
+                >
+                  {isSavingScanEdit ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin mr-1.5" />
+                      Saving...
+                    </>
+                  ) : (
+                    scanTimeEditModal.mode === 'IN' ? 'Confirm Check IN' : 'Confirm Check OUT'
                   )}
                 </button>
               </div>
