@@ -3,7 +3,7 @@ import { useEffect, useState, useRef } from "react";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { supabase, AttendanceRecord, Employee } from "@/lib/supabase";
 import { localdb } from "@/lib/localdb";
-import { CheckCircle2, AlertCircle, X, Truck, Package, Search, ChevronRight, ChevronUp, ChevronDown, Loader2, Sparkles, Camera, Flashlight, FlashlightOff, WifiOff, ClipboardList, RefreshCw, Clock, Pencil } from "lucide-react";
+import { CheckCircle2, AlertCircle, X, Truck, Package, Search, ChevronUp, ChevronDown, Loader2, Sparkles, Camera, Flashlight, FlashlightOff, WifiOff, ClipboardList, RefreshCw, Clock, Pencil } from "lucide-react";
 import { syncOfflineDataBackup, updateCachedEmployee, updateCachedAttendance } from "@/lib/offlineBackup";
 import { getCachedEmployees, getCachedEmployeeById } from "@/lib/employeeCache";
 import { formatTimeForSave, formatTimeForDisplay } from "@/lib/timeFormat";
@@ -958,10 +958,6 @@ export default function ScannerTab() {
       alert("Flashlight is not supported or unavailable on this camera.");
     }
   };
-  const [manualModalOpen, setManualModalOpen] = useState(false);
-  const [searchPhone, setSearchPhone] = useState("");
-  const [searchResults, setSearchResults] = useState<Employee[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   
@@ -1470,34 +1466,6 @@ export default function ScannerTab() {
     }, 3000);
   };
 
-    useEffect(() => {
-    const query = searchPhone.trim();
-    if (query.length < 2) {
-      setSearchResults([]);
-      return;
-    }
-    
-    setIsSearching(true);
-    const timer = setTimeout(async () => {
-      let results: Employee[] = [];
-      if (navigator.onLine) {
-        const { data } = await supabase.from('employees').select('*').or(`phone.ilike.%${query}%,name.ilike.%${query}%`).limit(15);
-        if (data) results = data;
-      } else {
-        const emps = getCachedEmployees();
-        const lowerQuery = query.toLowerCase();
-        results = emps.filter(e =>
-          (e.phone && e.phone.includes(query)) ||
-          (e.name && e.name.toLowerCase().includes(lowerQuery))
-        ).slice(0, 15);
-      }
-      setSearchResults(results);
-      setIsSearching(false);
-    }, 300);
-    
-    return () => clearTimeout(timer);
-  }, [searchPhone, navigator.onLine]);
-
   const handleSnapshotScan = async () => {
     if (aiLoading) return;
     
@@ -1649,15 +1617,6 @@ export default function ScannerTab() {
     }
   };
 
-  const handleManualSearch = (e: React.FormEvent) => { e.preventDefault(); };
-
-  const handleManualSelect = (empId: string) => {
-    setManualModalOpen(false);
-    setSearchPhone("");
-    setSearchResults([]);
-    onScanSuccess(JSON.stringify({ empId }));
-  };
-
   const cancelVehicleScan = () => {
     setVehicleModal(null);
     setDriverName("");
@@ -1779,93 +1738,18 @@ export default function ScannerTab() {
         )}
       </div>
 
-      <button 
-        onClick={() => { setManualModalOpen(true); if (scannerRef.current) { try { scannerRef.current.pause(true); } catch(e) {} } }}
-        className="w-full bg-white border border-gray-100 py-3.5 px-4 rounded-[20px] flex items-center justify-between shadow-sm z-10 hover:bg-gray-50 active:scale-95 transition-transform"
+      {/* AI Snapshot Button */}
+      <button
+        onClick={handleSnapshotScan}
+        disabled={aiLoading}
+        className="w-full bg-gradient-to-r from-purple-500 to-indigo-600 text-white py-4 px-4 rounded-[20px] flex items-center justify-center shadow-md z-10 hover:opacity-90 active:scale-95 transition-all disabled:opacity-50"
       >
-        <div className="flex items-center">
-          <div className="bg-gray-100 text-gray-500 p-2 rounded-xl mr-4">
-            <Search size={20} />
-          </div>
-          <div className="text-left">
-            <span className="block text-gray-800 font-bold text-sm">Forgot QR Code?</span>
-            <span className="block text-gray-400 text-[10px] font-bold uppercase tracking-wider mt-0.5">Search Name or Phone</span>
-          </div>
-        </div>
-        <div className="text-gray-400">
-          <ChevronRight size={20} />
-        </div>
+        {aiLoading ? (
+          <><Loader2 size={24} className="animate-spin mr-2" /> <span className="font-bold">Analyzing with AI...</span></>
+        ) : (
+          <><Camera size={24} className="mr-2" /> <span className="font-bold">Take Photo & AI Scan</span></>
+        )}
       </button>
-        {/* AI Snapshot Button (Moved below scanner) */}
-        <button
-          onClick={handleSnapshotScan}
-          disabled={aiLoading}
-          className="w-full bg-gradient-to-r from-purple-500 to-indigo-600 text-white py-4 px-4 rounded-[20px] flex items-center justify-center shadow-md z-10 hover:opacity-90 active:scale-95 transition-all mt-4 disabled:opacity-50"
-        >
-          {aiLoading ? (
-            <><Loader2 size={24} className="animate-spin mr-2" /> <span className="font-bold">Analyzing with AI...</span></>
-          ) : (
-            <><Camera size={24} className="mr-2" /> <span className="font-bold">Take Photo & AI Scan</span></>
-          )}
-        </button>
-        
-
-
-            {/* Manual Search Modal */}
-      {manualModalOpen && (
-        <div className="fixed inset-0 z-[120] bg-black/80 flex items-start pt-[10vh] justify-center p-4 animate-fade-in">
-          <div className="bg-white w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl relative flex flex-col max-h-[80vh]">
-            <div className="bg-gray-50 p-4 border-b border-gray-100 flex justify-between items-center shrink-0">
-              <h3 className="font-bold text-gray-800">Manual Entry</h3>
-              <button onClick={() => { setManualModalOpen(false); setSearchResults([]); if (scannerRef.current) { try { scannerRef.current.resume(); } catch(e) {} } }} className="text-gray-400 hover:text-gray-800">
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="p-5 shrink-0">
-              <form onSubmit={handleManualSearch} className="flex space-x-2">
-                <input 
-                  type="text" 
-                  value={searchPhone}
-                  onChange={e => setSearchPhone(e.target.value)}
-                  placeholder="Name or Phone Number"
-                  className="flex-1 bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
-                  autoFocus
-                />
-                <button 
-                  type="submit" 
-                  className="bg-blue-600 text-white p-3 rounded-xl font-bold shadow-md active:scale-95 transition-transform"
-                >
-                  <Search size={20} />
-                </button>
-              </form>
-            </div>
-
-            <div className="overflow-y-auto p-5 pt-0 flex-1 space-y-3 bg-gray-50/50">
-              {isSearching && <div className="text-center text-sm text-gray-400 py-4">Searching...</div>}
-              
-              {!isSearching && searchResults.length === 0 && searchPhone !== "+91 " && (
-                <div className="text-center text-sm text-gray-400 py-4">No profiles found for this number.</div>
-              )}
-              
-              {searchResults.map(emp => (
-                <div key={emp.empId} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
-                  <div>
-                    <h4 className="font-bold text-gray-800">{emp.name}</h4>
-                    <span className="text-[10px] font-bold text-blue-500 uppercase tracking-wider">{emp.category || 'Staff'}</span>
-                  </div>
-                  <button 
-                    onClick={() => handleManualSelect(emp.empId)}
-                    className="bg-green-100 hover:bg-green-200 text-green-700 px-4 py-2 rounded-lg font-bold text-xs transition-colors"
-                  >
-                    Select
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Result Toast */}
       {scanResult && !vehicleModal && !parcelModal && !scanTimeEditModal && (
