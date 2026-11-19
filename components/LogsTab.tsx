@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase, AttendanceRecord } from "@/lib/supabase";
 import { localdb } from "@/lib/localdb";
 import { formatTimeForDisplay } from "@/lib/timeFormat";
+import { processAutoCheckouts } from "@/lib/autoCheckout";
 import { Clock, CheckCircle2, UserPlus, Truck, Shield, Package } from "lucide-react";
 
 export default function LogsTab({ embedded }: { embedded?: boolean } = {}) {
@@ -32,6 +33,10 @@ export default function LogsTab({ embedded }: { embedded?: boolean } = {}) {
   }, []);
 
   async function fetchLogs() {
+    try {
+      await processAutoCheckouts();
+    } catch (e) {}
+
     let allLogs: AttendanceRecord[] = [];
     
     if (navigator.onLine) {

@@ -20,6 +20,7 @@ import {
   Trash2,
   Search,
   Clock,
+  LogOut,
   Copy,
   Check,
   ExternalLink,
@@ -28,6 +29,8 @@ import {
   Globe
 } from "lucide-react";
 import { appLogger } from "@/lib/logger";
+import { getDefaultCheckoutTime } from "@/lib/autoCheckout";
+import { convertTo24Hour, formatTimeForDisplay } from "@/lib/timeFormat";
 import { 
   getStaffVerifyUrl, 
   getVerificationBaseUrl, 
@@ -67,6 +70,8 @@ export default function EmployeesTab({
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [groupMembers, setGroupMembers] = useState<string[]>([""]);
   const [allowEntryTime, setAllowEntryTime] = useState(false);
+  const [enableDefaultCheckout, setEnableDefaultCheckout] = useState(false);
+  const [defaultCheckoutTime, setDefaultCheckoutTime] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
 
@@ -93,6 +98,8 @@ export default function EmployeesTab({
   const [editExistingDocUrl, setEditExistingDocUrl] = useState<string | undefined>(undefined);
   const [editGroupMembers, setEditGroupMembers] = useState<string[]>([""]);
   const [editAllowEntryTime, setEditAllowEntryTime] = useState(false);
+  const [editEnableDefaultCheckout, setEditEnableDefaultCheckout] = useState(false);
+  const [editDefaultCheckoutTime, setEditDefaultCheckoutTime] = useState("");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -251,7 +258,10 @@ export default function EmployeesTab({
     setEditDocumentFile(null);
     const isAllowed = emp.allow_entry_time_edit === true || (typeof emp.group_members === 'string' && emp.group_members.includes('__ALLOW_ENTRY_TIME_EDIT__'));
     setEditAllowEntryTime(!!isAllowed);
-    if (emp.group_members && !emp.group_members.includes('__ALLOW_ENTRY_TIME_EDIT__')) {
+    const defCheckout = getDefaultCheckoutTime(emp);
+    setEditEnableDefaultCheckout(!!defCheckout);
+    setEditDefaultCheckoutTime(defCheckout || "19:00");
+    if (emp.group_members && !emp.group_members.includes('__ALLOW_ENTRY_TIME_EDIT__') && !emp.group_members.includes('__DEFAULT_CHECKOUT:')) {
       setEditGroupMembers(emp.group_members.split(",").map(m => m.trim()).filter(Boolean));
     } else {
       setEditGroupMembers([""]);
@@ -280,10 +290,17 @@ export default function EmployeesTab({
         document_url = publicUrl;
       }
 
+      const defaultCheckoutVal = (editCategory === 'Staff' && editEnableDefaultCheckout && editDefaultCheckoutTime)
+        ? convertTo24Hour(editDefaultCheckoutTime)
+        : undefined;
+
       const filteredGroup = editGroupMembers.filter(m => m.trim() !== "");
       let groupMembersVal: string | undefined = filteredGroup.length > 0 ? filteredGroup.join(", ") : undefined;
       if (editCategory === 'Staff') {
-        groupMembersVal = editAllowEntryTime ? '__ALLOW_ENTRY_TIME_EDIT__' : undefined;
+        const tags: string[] = [];
+        if (editAllowEntryTime) tags.push('__ALLOW_ENTRY_TIME_EDIT__');
+        if (defaultCheckoutVal) tags.push(`__DEFAULT_CHECKOUT:${defaultCheckoutVal}__`);
+        groupMembersVal = tags.length > 0 ? tags.join(", ") : undefined;
       }
 
       const updatedEmp: Employee = {
@@ -296,6 +313,7 @@ export default function EmployeesTab({
         document_url: document_url || undefined,
         group_members: groupMembersVal,
         allow_entry_time_edit: editAllowEntryTime,
+        default_checkout_time: defaultCheckoutVal || undefined,
       };
 
       if (navigator.onLine) {
@@ -309,12 +327,13 @@ export default function EmployeesTab({
             vehicle_plate: updatedEmp.vehicle_plate || null,
             document_url: updatedEmp.document_url || null,
             group_members: updatedEmp.group_members || null,
-            allow_entry_time_edit: updatedEmp.allow_entry_time_edit
+            allow_entry_time_edit: updatedEmp.allow_entry_time_edit,
+            default_checkout_time: updatedEmp.default_checkout_time || null
           })
           .eq('empId', updatedEmp.empId);
 
         if (error) {
-          // If allow_entry_time_edit column doesn't exist yet, retry without it
+          // If columns don't exist yet, retry without them
           // The fallback tag in group_members ensures it persists in DB anyway!
           const { error: retryError } = await supabase
             .from('employees')
@@ -666,10 +685,17 @@ export default function EmployeesTab({
       }
     }
     
+    const defaultCheckoutVal = (category === 'Staff' && enableDefaultCheckout && defaultCheckoutTime)
+      ? convertTo24Hour(defaultCheckoutTime)
+      : undefined;
+
     const filteredGroup = groupMembers.filter(m => m.trim() !== "");
     let groupMembersVal: string | undefined = filteredGroup.length > 0 ? filteredGroup.join(", ") : undefined;
-    if (category === 'Staff' && allowEntryTime) {
-      groupMembersVal = '__ALLOW_ENTRY_TIME_EDIT__';
+    if (category === 'Staff') {
+      const tags: string[] = [];
+      if (allowEntryTime) tags.push('__ALLOW_ENTRY_TIME_EDIT__');
+      if (defaultCheckoutVal) tags.push(`__DEFAULT_CHECKOUT:${defaultCheckoutVal}__`);
+      groupMembersVal = tags.length > 0 ? tags.join(", ") : undefined;
     }
 
     const newEmp: Employee = {
@@ -682,6 +708,7 @@ export default function EmployeesTab({
       vehicle_plate: vehiclePlate || undefined,
       group_members: groupMembersVal,
       allow_entry_time_edit: allowEntryTime,
+      default_checkout_time: defaultCheckoutVal || undefined,
       createdAt: new Date().toISOString()
     };
     
@@ -691,6 +718,7 @@ export default function EmployeesTab({
         if (error) {
           const sanitized = { ...newEmp };
           delete sanitized.allow_entry_time_edit;
+          delete sanitized.default_checkout_time;
           const { error: retryErr } = await supabase.from('employees').insert([sanitized]);
           if (retryErr) throw retryErr;
         }
@@ -707,6 +735,8 @@ export default function EmployeesTab({
       localStorage.setItem('cached_employees', JSON.stringify(currentList));
     }
     
+    setEnableDefaultCheckout(false);
+    setDefaultCheckoutTime("");
     setIsUploading(false);
     setShowForm(false);
     fetchEmployees();
@@ -965,32 +995,98 @@ export default function EmployeesTab({
                 )}
 
                 {category === 'Staff' && (
-                  <div className="p-3.5 bg-gradient-to-r from-blue-50/80 to-indigo-50/80 border border-blue-200/80 rounded-2xl flex items-center justify-between shadow-2xs mt-3">
-                    <div className="pr-3">
-                      <div className="flex items-center space-x-1.5">
-                        <Clock size={16} className="text-blue-700 shrink-0" />
-                        <span className="text-xs font-extrabold text-gray-800">Allow Entry Time Edit</span>
+                  <>
+                    <div className="p-3.5 bg-gradient-to-r from-blue-50/80 to-indigo-50/80 border border-blue-200/80 rounded-2xl flex items-center justify-between shadow-2xs mt-3">
+                      <div className="pr-3">
+                        <div className="flex items-center space-x-1.5">
+                          <Clock size={16} className="text-blue-700 shrink-0" />
+                          <span className="text-xs font-extrabold text-gray-800">Allow Entry Time Edit</span>
+                        </div>
+                        <p className="text-[11px] text-gray-500 mt-0.5 leading-tight">
+                          When enabled, guards can edit this staff member's punch-in / entry time from Today's Attendance.
+                        </p>
                       </div>
-                      <p className="text-[11px] text-gray-500 mt-0.5 leading-tight">
-                        When enabled, guards can edit this staff member's punch-in / entry time from Today's Attendance.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={allowEntryTime}
-                      onClick={() => setAllowEntryTime(!allowEntryTime)}
-                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                        allowEntryTime ? 'bg-blue-600' : 'bg-gray-300'
-                      }`}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                          allowEntryTime ? 'translate-x-5' : 'translate-x-0'
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={allowEntryTime}
+                        onClick={() => setAllowEntryTime(!allowEntryTime)}
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                          allowEntryTime ? 'bg-blue-600' : 'bg-gray-300'
                         }`}
-                      />
-                    </button>
-                  </div>
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                            allowEntryTime ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    <div className="p-3.5 bg-gradient-to-r from-indigo-50/80 to-purple-50/80 border border-indigo-200/80 rounded-2xl shadow-2xs mt-3">
+                      <div className="flex items-center justify-between">
+                        <div className="pr-3">
+                          <div className="flex items-center space-x-1.5">
+                            <LogOut size={16} className="text-indigo-700 shrink-0" />
+                            <span className="text-xs font-extrabold text-gray-800">Default Check-Out Time (Optional)</span>
+                          </div>
+                          <p className="text-[11px] text-gray-500 mt-0.5 leading-tight">
+                            Auto checks out staff at this time if they leave late and guard is unavailable.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={enableDefaultCheckout}
+                          onClick={() => {
+                            const next = !enableDefaultCheckout;
+                            setEnableDefaultCheckout(next);
+                            if (next && !defaultCheckoutTime) setDefaultCheckoutTime("19:00");
+                          }}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                            enableDefaultCheckout ? 'bg-indigo-600' : 'bg-gray-300'
+                          }`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                              enableDefaultCheckout ? 'translate-x-5' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
+
+                      {enableDefaultCheckout && (
+                        <div className="mt-3 pt-3 border-t border-indigo-200/60 animate-fade-in space-y-2">
+                          <div className="flex items-center justify-between">
+                            <label className="text-[11px] font-bold text-gray-700">Auto Check-Out At:</label>
+                            <input
+                              type="time"
+                              value={defaultCheckoutTime}
+                              onChange={(e) => setDefaultCheckoutTime(e.target.value)}
+                              className="bg-white border border-indigo-200 rounded-xl px-2.5 py-1 text-xs font-mono font-bold text-gray-800 outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
+                            />
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] text-gray-400 font-bold uppercase mr-1">Quick:</span>
+                            {['18:00', '18:30', '19:00', '19:30', '20:00', '20:30', '21:00'].map((preset) => (
+                              <button
+                                key={preset}
+                                type="button"
+                                onClick={() => setDefaultCheckoutTime(preset)}
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition-all cursor-pointer ${
+                                  defaultCheckoutTime === preset
+                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                    : 'bg-white hover:bg-gray-50 text-gray-600 border-gray-200'
+                                }`}
+                              >
+                                {formatTimeForDisplay(preset)}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
                 )}
               </div>
             )}
@@ -1316,6 +1412,11 @@ export default function EmployeesTab({
                         <Clock size={10} className="mr-0.5 text-emerald-600" /> Time Edit
                       </span>
                     )}
+                    {emp.category === 'Staff' && getDefaultCheckoutTime(emp) && (
+                      <span className="inline-flex items-center text-[9px] uppercase tracking-wider font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded-md shrink-0" title={`Auto checkout at ${formatTimeForDisplay(getDefaultCheckoutTime(emp))}`}>
+                        <LogOut size={10} className="mr-0.5 text-indigo-600" /> Auto-Out {formatTimeForDisplay(getDefaultCheckoutTime(emp))}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-gray-500 mt-0.5 font-mono truncate">
                     {emp.empId} • {emp.category === 'Vehicle' ? emp.vehicle_plate : emp.department}
@@ -1471,32 +1572,98 @@ export default function EmployeesTab({
 
               {/* Allow Entry Time Edit Toggle (for Staff) */}
               {editCategory === 'Staff' && (
-                <div className="p-3.5 bg-gradient-to-r from-blue-50/80 to-indigo-50/80 border border-blue-200/80 rounded-2xl flex items-center justify-between shadow-2xs">
-                  <div className="pr-3">
-                    <div className="flex items-center space-x-1.5">
-                      <Clock size={16} className="text-blue-700 shrink-0" />
-                      <span className="text-xs font-extrabold text-gray-800">Allow Entry Time Edit</span>
+                <>
+                  <div className="p-3.5 bg-gradient-to-r from-blue-50/80 to-indigo-50/80 border border-blue-200/80 rounded-2xl flex items-center justify-between shadow-2xs">
+                    <div className="pr-3">
+                      <div className="flex items-center space-x-1.5">
+                        <Clock size={16} className="text-blue-700 shrink-0" />
+                        <span className="text-xs font-extrabold text-gray-800">Allow Entry Time Edit</span>
+                      </div>
+                      <p className="text-[11px] text-gray-500 mt-0.5 leading-tight">
+                        When enabled, guards can edit this staff member's punch-in / entry time from Today's Attendance.
+                      </p>
                     </div>
-                    <p className="text-[11px] text-gray-500 mt-0.5 leading-tight">
-                      When enabled, guards can edit this staff member's punch-in / entry time from Today's Attendance.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={editAllowEntryTime}
-                    onClick={() => setEditAllowEntryTime(!editAllowEntryTime)}
-                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      editAllowEntryTime ? 'bg-blue-600' : 'bg-gray-300'
-                    }`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                        editAllowEntryTime ? 'translate-x-5' : 'translate-x-0'
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={editAllowEntryTime}
+                      onClick={() => setEditAllowEntryTime(!editAllowEntryTime)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        editAllowEntryTime ? 'bg-blue-600' : 'bg-gray-300'
                       }`}
-                    />
-                  </button>
-                </div>
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                          editAllowEntryTime ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  <div className="p-3.5 bg-gradient-to-r from-indigo-50/80 to-purple-50/80 border border-indigo-200/80 rounded-2xl shadow-2xs mt-3">
+                    <div className="flex items-center justify-between">
+                      <div className="pr-3">
+                        <div className="flex items-center space-x-1.5">
+                          <LogOut size={16} className="text-indigo-700 shrink-0" />
+                          <span className="text-xs font-extrabold text-gray-800">Default Check-Out Time (Optional)</span>
+                        </div>
+                        <p className="text-[11px] text-gray-500 mt-0.5 leading-tight">
+                          Auto checks out staff at this time if they leave late and guard is unavailable.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={editEnableDefaultCheckout}
+                        onClick={() => {
+                          const next = !editEnableDefaultCheckout;
+                          setEditEnableDefaultCheckout(next);
+                          if (next && !editDefaultCheckoutTime) setEditDefaultCheckoutTime("19:00");
+                        }}
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                          editEnableDefaultCheckout ? 'bg-indigo-600' : 'bg-gray-300'
+                        }`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                            editEnableDefaultCheckout ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {editEnableDefaultCheckout && (
+                      <div className="mt-3 pt-3 border-t border-indigo-200/60 animate-fade-in space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[11px] font-bold text-gray-700">Auto Check-Out At:</label>
+                          <input
+                            type="time"
+                            value={editDefaultCheckoutTime}
+                            onChange={(e) => setEditDefaultCheckoutTime(e.target.value)}
+                            className="bg-white border border-indigo-200 rounded-xl px-2.5 py-1 text-xs font-mono font-bold text-gray-800 outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] text-gray-400 font-bold uppercase mr-1">Quick:</span>
+                          {['18:00', '18:30', '19:00', '19:30', '20:00', '20:30', '21:00'].map((preset) => (
+                            <button
+                              key={preset}
+                              type="button"
+                              onClick={() => setEditDefaultCheckoutTime(preset)}
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition-all cursor-pointer ${
+                                editDefaultCheckoutTime === preset
+                                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                  : 'bg-white hover:bg-gray-50 text-gray-600 border-gray-200'
+                              }`}
+                            >
+                              {formatTimeForDisplay(preset)}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
 
               {/* ID Document / Photo section */}

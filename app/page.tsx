@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Users, QrCode, ClipboardList, Settings, Zap, RefreshCw, LogOut, User, WifiOff, ShieldCheck } from "lucide-react";
 import { syncOfflineDataBackup, getOfflineBackupStats, OfflineBackupStats } from "@/lib/offlineBackup";
+import { processAutoCheckouts } from "@/lib/autoCheckout";
 import ScannerTab from '@/components/ScannerTab';
 import EmployeesTab from '@/components/EmployeesTab';
 import LogsTab from '@/components/LogsTab';
@@ -239,11 +240,20 @@ export default function Home() {
     window.addEventListener('ai_scan_result', handleAiScan);
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && navigator.onLine) {
-        triggerBackup();
+      if (document.visibilityState === 'visible') {
+        processAutoCheckouts();
+        if (navigator.onLine) {
+          triggerBackup();
+        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Initial check and periodic check for auto check-out
+    processAutoCheckouts();
+    const autoCheckoutInterval = setInterval(() => {
+      processAutoCheckouts();
+    }, 120000); // Check every 2 minutes
 
     // Periodic backup every five minutes while visible and online.
     const interval = setInterval(() => {
@@ -255,6 +265,7 @@ export default function Home() {
     return () => {
       subscription.unsubscribe();
       clearInterval(interval);
+      clearInterval(autoCheckoutInterval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);

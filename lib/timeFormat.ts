@@ -46,3 +46,36 @@ export function formatIndianDateTime(date: Date = new Date()): string {
   return `${datePart} at ${timePart}`;
 }
 
+export function convertTo24Hour(timeStr: string): string {
+  if (!timeStr) return "";
+  const clean = timeStr.trim();
+  const match24 = clean.match(/^(\d{1,2}):(\d{2})$/);
+  if (match24) {
+    return `${match24[1].padStart(2, '0')}:${match24[2]}`;
+  }
+  const match12 = clean.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (match12) {
+    let hours = parseInt(match12[1], 10);
+    const minutes = match12[2];
+    const modifier = (match12[3] || '').toUpperCase();
+    if (modifier === 'PM' && hours < 12) hours += 12;
+    if (modifier === 'AM' && hours === 12) hours = 0;
+    return `${String(hours).padStart(2, '0')}:${minutes}`;
+  }
+  return "";
+}
+
+export function formatTo12Hour(time24: string): string {
+  if (!time24) return "";
+  return formatTimeForDisplay(time24);
+}
+
+export function parseDateAnd24HourToISTTimestamp(dateStr: string, time24: string): number {
+  const normalized24 = convertTo24Hour(time24);
+  if (!normalized24) return NaN;
+  const [hh, mm] = normalized24.split(':');
+  const isoStr = `${dateStr}T${hh.padStart(2, '0')}:${mm.padStart(2, '0')}:00+05:30`;
+  return new Date(isoStr).getTime();
+}
+
+

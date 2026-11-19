@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { supabase, AttendanceRecord } from "@/lib/supabase";
 import { localdb } from "@/lib/localdb";
 import { formatTimeForDisplay } from "@/lib/timeFormat";
+import { processAutoCheckouts } from "@/lib/autoCheckout";
 import { CalendarDays, Clock, Users, FileBarChart2, ChevronDown , Search, X, MapPin, Navigation } from "lucide-react";
 
 export default function ReportsTab() {
@@ -123,6 +124,10 @@ export default function ReportsTab() {
 
     // 3. If online, fetch fresh data from Supabase
     if (typeof navigator !== 'undefined' && navigator.onLine) {
+      try {
+        await processAutoCheckouts();
+      } catch (e) {}
+
       try {
         const [empsRes, attRes] = await Promise.all([
           supabase.from('employees').select('*'),

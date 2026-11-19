@@ -16,6 +16,7 @@ export interface Employee {
   vehicle_plate?: string;
   group_members?: string;
   allow_entry_time_edit?: boolean;
+  default_checkout_time?: string;
 }
 
 export interface AttendanceRecord {

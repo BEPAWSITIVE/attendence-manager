@@ -8,6 +8,7 @@ import { syncOfflineDataBackup, updateCachedEmployee, updateCachedAttendance } f
 import { getCachedEmployees, getCachedEmployeeById } from "@/lib/employeeCache";
 import { formatTimeForSave, formatTimeForDisplay } from "@/lib/timeFormat";
 import { extractEmpIdFromScan } from "@/lib/qrUtils";
+import { processAutoCheckouts } from "@/lib/autoCheckout";
 
 const getCachedProfile = (id: string): Employee | null => {
   return getCachedEmployeeById(id);
@@ -534,6 +535,10 @@ export default function ScannerTab() {
 
   const fetchTodayRecords = async () => {
     setIsLoadingToday(true);
+    try {
+      await processAutoCheckouts();
+    } catch (e) {}
+
     const todayStr = new Date().toISOString().split('T')[0];
     let list: AttendanceRecord[] = [];
 
