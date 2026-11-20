@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import { supabase, Employee } from "@/lib/supabase";
+import { supabase, Employee, AttendanceRecord } from "@/lib/supabase";
 import { localdb } from "@/lib/localdb";
 import { QRCodeCanvas } from "qrcode.react";
 import { 
@@ -21,6 +21,10 @@ import {
   Search,
   Clock,
   LogOut,
+  LogIn,
+  QrCode,
+  AlertCircle,
+  RefreshCw,
   Copy,
   Check,
   ExternalLink,
@@ -30,7 +34,8 @@ import {
 } from "lucide-react";
 import { appLogger } from "@/lib/logger";
 import { getDefaultCheckoutTime } from "@/lib/autoCheckout";
-import { convertTo24Hour, formatTimeForDisplay } from "@/lib/timeFormat";
+import { convertTo24Hour, formatTimeForDisplay, formatTimeForSave, parseDateAnd24HourToISTTimestamp } from "@/lib/timeFormat";
+import { updateCachedAttendance } from "@/lib/offlineBackup";
 import { 
   getStaffVerifyUrl, 
   getVerificationBaseUrl, 
@@ -102,6 +107,16 @@ export default function EmployeesTab({
   const [editDefaultCheckoutTime, setEditDefaultCheckoutTime] = useState("");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Forgot QR Manual Attendance States (Admin only)
+  const [showForgotQrModal, setShowForgotQrModal] = useState(false);
+  const [forgotQrSearch, setForgotQrSearch] = useState("");
+  const [todayAttendance, setTodayAttendance] = useState<AttendanceRecord[]>([]);
+  const [loadingTodayAttendance, setLoadingTodayAttendance] = useState(false);
+  const [forgotQrTimeMode, setForgotQrTimeMode] = useState<'now' | 'custom'>('now');
+  const [forgotQrCustomTime, setForgotQrCustomTime] = useState("");
+  const [forgotQrProcessingId, setForgotQrProcessingId] = useState<string | null>(null);
+  const [forgotQrToast, setForgotQrToast] = useState<{ success: boolean; msg: string } | null>(null);
 
   useEffect(() => {
     if (role === 'guard' && category !== 'Visitor') {
@@ -767,6 +782,185 @@ export default function EmployeesTab({
     }
   };
 
+  const todayDateStr = new Date().toISOString().split('T')[0];
+
+  const fetchTodayAttendance = async () => {
+    setLoadingTodayAttendance(true);
+    let records: AttendanceRecord[] = [];
+
+    if (navigator.onLine) {
+      try {
+        const { data, error } = await supabase
+          .from('attendance')
+          .select('*')
+          .eq('date', todayDateStr);
+        if (!error && Array.isArray(data)) {
+          records = data;
+        }
+      } catch (err) {
+        console.warn("Could not fetch today's attendance online:", err);
+      }
+    }
+
+    try {
+      const queued = await localdb.syncQueue.where({ date: todayDateStr }).toArray();
+      if (Array.isArray(queued) && queued.length > 0) {
+        const map = new Map<string, AttendanceRecord>();
+        for (const r of records) map.set(r.recordId, r);
+        for (const q of queued) map.set(q.recordId, q as any);
+        records = Array.from(map.values());
+      }
+    } catch (e) {}
+
+    if (records.length === 0) {
+      try {
+        const raw = localStorage.getItem('cached_logs');
+        if (raw) {
+          const list: AttendanceRecord[] = JSON.parse(raw);
+          if (Array.isArray(list)) {
+            records = list.filter(r => r.date === todayDateStr);
+          }
+        }
+      } catch (e) {}
+    }
+
+    setTodayAttendance(records);
+    setLoadingTodayAttendance(false);
+  };
+
+  const handleOpenForgotQrModal = () => {
+    setShowForgotQrModal(true);
+    setForgotQrSearch("");
+    setForgotQrTimeMode('now');
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    setForgotQrCustomTime(`${hh}:${mm}`);
+    setForgotQrToast(null);
+    fetchTodayAttendance();
+  };
+
+  const handleManualPunch = async (emp: Employee, targetAction: 'IN' | 'OUT') => {
+    setForgotQrProcessingId(emp.empId);
+    try {
+      const today = new Date();
+      const dateStr = today.toISOString().split('T')[0];
+      
+      let punchTimeStr = formatTimeForSave(today);
+      let punchTimestamp = today.getTime();
+
+      if (forgotQrTimeMode === 'custom' && forgotQrCustomTime) {
+        const parsedTs = parseDateAnd24HourToISTTimestamp(dateStr, forgotQrCustomTime);
+        if (!Number.isNaN(parsedTs)) {
+          punchTimestamp = parsedTs;
+          punchTimeStr = formatTimeForDisplay(forgotQrCustomTime);
+        }
+      }
+
+      // Find staff member's latest record for today
+      const staffRecords = todayAttendance.filter(r => r.empId === emp.empId && r.date === dateStr);
+      staffRecords.sort((a, b) => (b.inTimestamp || 0) - (a.inTimestamp || 0));
+      const latestRecord = staffRecords.length > 0 ? staffRecords[0] : null;
+
+      if (targetAction === 'IN') {
+        const newRecord: AttendanceRecord = {
+          recordId: crypto.randomUUID(),
+          empId: emp.empId,
+          empName: emp.name,
+          department: emp.department || 'General',
+          category: emp.category || 'Staff',
+          date: dateStr,
+          inTime: punchTimeStr,
+          inTimestamp: punchTimestamp,
+          status: 'IN',
+          isSynced: navigator.onLine ? 1 : 0,
+          updatedAt: new Date().toISOString()
+        };
+
+        if (navigator.onLine) {
+          const { error } = await supabase.from('attendance').insert([newRecord]);
+          if (error) throw error;
+        } else {
+          await localdb.syncQueue.put(newRecord as any);
+        }
+
+        updateCachedAttendance(newRecord as any);
+        setTodayAttendance(prev => [newRecord, ...prev]);
+
+        setForgotQrToast({
+          success: true,
+          msg: `Checked IN: ${emp.name} at ${punchTimeStr}`
+        });
+        appLogger.info("Admin", `Manual Check-IN for ${emp.name} (${emp.empId}) at ${punchTimeStr}`);
+      } else {
+        if (!latestRecord || latestRecord.status !== 'IN') {
+          throw new Error(`${emp.name} does not have an active Check-IN record for today.`);
+        }
+
+        const diffMs = punchTimestamp - (latestRecord.inTimestamp || punchTimestamp);
+        const hrs = Math.max(0, Math.floor(diffMs / 3600000));
+        const mins = Math.max(0, Math.floor((diffMs % 3600000) / 60000));
+        const totalHours = `${hrs}h ${mins}m`;
+
+        const updatedRecord: AttendanceRecord = {
+          ...latestRecord,
+          empName: emp.name || latestRecord.empName,
+          department: emp.department || latestRecord.department,
+          category: emp.category || latestRecord.category,
+          outTime: punchTimeStr,
+          outTimestamp: punchTimestamp,
+          totalHours: totalHours,
+          status: 'OUT',
+          isSynced: navigator.onLine ? 1 : 0,
+          updatedAt: new Date().toISOString()
+        };
+
+        if (navigator.onLine) {
+          const { error } = await supabase
+            .from('attendance')
+            .update(updatedRecord)
+            .eq('recordId', latestRecord.recordId);
+          if (error) throw error;
+        } else {
+          await localdb.syncQueue.put(updatedRecord as any);
+        }
+
+        updateCachedAttendance(updatedRecord as any);
+        setTodayAttendance(prev => prev.map(r => r.recordId === updatedRecord.recordId ? updatedRecord : r));
+
+        setForgotQrToast({
+          success: true,
+          msg: `Checked OUT: ${emp.name} at ${punchTimeStr} (${totalHours})`
+        });
+        appLogger.info("Admin", `Manual Check-OUT for ${emp.name} (${emp.empId}) at ${punchTimeStr} (${totalHours})`);
+      }
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('ams_attendance_updated'));
+        window.dispatchEvent(new CustomEvent('ams_today_count_changed'));
+      }
+    } catch (err: any) {
+      setForgotQrToast({
+        success: false,
+        msg: err.message || "Failed to update attendance."
+      });
+    } finally {
+      setForgotQrProcessingId(null);
+    }
+  };
+
+  const filteredForgotQrStaff = employees.filter(e => {
+    if (e.category === 'Vehicle' || e.category === 'Parcel') return false;
+    if (!forgotQrSearch.trim()) return true;
+    const q = forgotQrSearch.toLowerCase().trim();
+    return (
+      e.name?.toLowerCase().includes(q) ||
+      e.empId?.toLowerCase().includes(q) ||
+      e.department?.toLowerCase().includes(q) ||
+      e.phone?.includes(q)
+    );
+  });
+
   const getCategoryIcon = (cat?: string) => {
     if (cat === 'Vehicle') return <Truck size={16} className="text-amber-500" />;
     if (cat === 'Visitor') return <UserPlus size={16} className="text-emerald-500" />;
@@ -778,7 +972,7 @@ export default function EmployeesTab({
     <div className="p-4 pb-20 max-w-md mx-auto space-y-4">
       {/* Registry Responsive Header */}
       <div className="space-y-2.5">
-        {/* Row 1: Title & Primary Add Action */}
+        {/* Row 1: Title & Actions (Registry ... Forgot QR ... Add New) */}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center space-x-2 min-w-0">
             <h2 className="text-2xl font-black text-gray-800 tracking-tight">Registry</h2>
@@ -787,14 +981,28 @@ export default function EmployeesTab({
             </span>
           </div>
 
-          <button 
-            type="button"
-            onClick={handleOpenForm}
-            className="bg-blue-900 hover:bg-blue-800 active:bg-blue-950 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center shadow-xs active:scale-95 transition-all whitespace-nowrap shrink-0 h-9"
-          >
-            <UserPlus size={15} className="mr-1.5 shrink-0" />
-            <span>Add New</span>
-          </button>
+          <div className="flex items-center space-x-2 shrink-0">
+            {role === 'admin' && (
+              <button 
+                type="button"
+                onClick={handleOpenForgotQrModal}
+                className="bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-amber-900 border border-amber-300/80 px-2.5 sm:px-3 py-2 rounded-xl text-xs font-bold flex items-center shadow-xs active:scale-95 transition-all whitespace-nowrap h-9 cursor-pointer"
+                title="Manual Attendance for staff who forgot their QR code"
+              >
+                <QrCode size={15} className="mr-1.5 text-amber-700 shrink-0" />
+                <span>Forgot QR</span>
+              </button>
+            )}
+
+            <button 
+              type="button"
+              onClick={handleOpenForm}
+              className="bg-blue-900 hover:bg-blue-800 active:bg-blue-950 text-white px-3 sm:px-3.5 py-2 rounded-xl text-xs font-bold flex items-center shadow-xs active:scale-95 transition-all whitespace-nowrap shrink-0 h-9 cursor-pointer"
+            >
+              <UserPlus size={15} className="mr-1.5 shrink-0" />
+              <span>Add New</span>
+            </button>
+          </div>
         </div>
 
         {/* Row 2: Secondary Tool Actions (Upload CSV & Bulk ZIP Export) */}
@@ -2207,6 +2415,221 @@ export default function EmployeesTab({
           </div>
         );
       })()}
+
+      {/* Forgot QR Manual Attendance Modal (Admin Only) */}
+      {showForgotQrModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-fade-in">
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl relative max-h-[92dvh] flex flex-col">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white p-4 sm:p-5 flex items-center justify-between shrink-0 shadow-xs">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-xs">
+                  <QrCode size={20} className="text-white" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base leading-tight">Forgot QR Code</h3>
+                  <p className="text-[11px] text-amber-100 font-medium">Manual Check-In & Check-Out</p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setShowForgotQrModal(false)}
+                className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Notification Toast inside Modal */}
+            {forgotQrToast && (
+              <div className={`p-3 text-xs font-bold flex items-center justify-between border-b ${
+                forgotQrToast.success 
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+                  : 'bg-red-50 text-red-800 border-red-200'
+              }`}>
+                <div className="flex items-center space-x-2 truncate mr-2">
+                  {forgotQrToast.success ? <CheckCircle2 size={16} className="text-emerald-600 shrink-0" /> : <AlertCircle size={16} className="text-red-600 shrink-0" />}
+                  <span className="truncate">{forgotQrToast.msg}</span>
+                </div>
+                <button type="button" onClick={() => setForgotQrToast(null)} className="text-gray-400 hover:text-gray-700 shrink-0 text-xs font-extrabold cursor-pointer">✕</button>
+              </div>
+            )}
+
+            {/* Controls Bar: Search & Punch Time Configuration */}
+            <div className="p-4 pb-2 border-b border-gray-100 space-y-3 shrink-0 bg-gray-50/50">
+              {/* Search Box */}
+              <div className="relative">
+                <Search size={16} className="absolute left-3.5 top-3 text-gray-400" />
+                <input
+                  type="text"
+                  value={forgotQrSearch}
+                  onChange={(e) => setForgotQrSearch(e.target.value)}
+                  placeholder="Search staff name, ID, phone..."
+                  className="w-full bg-white border border-gray-200 pl-9 pr-8 py-2 rounded-xl text-xs font-medium outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs"
+                  autoFocus
+                />
+                {forgotQrSearch && (
+                  <button 
+                    type="button" 
+                    onClick={() => setForgotQrSearch("")}
+                    className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600 text-xs p-0.5 cursor-pointer"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+
+              {/* Time Mode Selector */}
+              <div className="bg-white p-2.5 rounded-xl border border-gray-200/80 shadow-2xs space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-gray-700 flex items-center gap-1">
+                    <Clock size={13} className="text-amber-600" /> Punch Time:
+                  </span>
+                  <div className="flex items-center bg-gray-100 p-0.5 rounded-lg text-[11px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setForgotQrTimeMode('now')}
+                      className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                        forgotQrTimeMode === 'now' 
+                          ? 'bg-amber-600 text-white shadow-xs' 
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      Now (Real-Time)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setForgotQrTimeMode('custom')}
+                      className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                        forgotQrTimeMode === 'custom' 
+                          ? 'bg-amber-600 text-white shadow-xs' 
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      Custom Time
+                    </button>
+                  </div>
+                </div>
+
+                {forgotQrTimeMode === 'custom' && (
+                  <div className="flex items-center justify-between pt-1 border-t border-gray-100 text-xs">
+                    <span className="text-[11px] font-bold text-gray-500">Select Time:</span>
+                    <input
+                      type="time"
+                      value={forgotQrCustomTime}
+                      onChange={(e) => setForgotQrCustomTime(e.target.value)}
+                      className="bg-gray-50 border border-gray-300 rounded-lg px-2 py-1 text-xs font-mono font-bold text-gray-800 outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Staff List */}
+            <div className="overflow-y-auto p-4 space-y-2.5 flex-1 bg-slate-50/50">
+              {loadingTodayAttendance ? (
+                <div className="py-12 text-center text-gray-400 space-y-2">
+                  <Loader2 size={24} className="animate-spin mx-auto text-amber-500" />
+                  <p className="text-xs font-bold">Loading today's status...</p>
+                </div>
+              ) : filteredForgotQrStaff.length === 0 ? (
+                <div className="py-10 text-center text-gray-400">
+                  <p className="text-xs font-bold">No staff found matching "{forgotQrSearch}".</p>
+                </div>
+              ) : (
+                filteredForgotQrStaff.map(emp => {
+                  const staffRecords = todayAttendance.filter(r => r.empId === emp.empId && r.date === todayDateStr);
+                  staffRecords.sort((a, b) => (b.inTimestamp || 0) - (a.inTimestamp || 0));
+                  const latestRecord = staffRecords.length > 0 ? staffRecords[0] : null;
+                  const isCurrentlyIn = latestRecord && latestRecord.status === 'IN';
+                  const isProcessing = forgotQrProcessingId === emp.empId;
+
+                  return (
+                    <div 
+                      key={emp.empId}
+                      className="bg-white p-3.5 rounded-2xl border border-gray-100 shadow-2xs hover:border-amber-200 transition-all flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center space-x-2">
+                          <h4 className="font-extrabold text-sm text-gray-800 truncate">{emp.name}</h4>
+                          <span className="text-[9px] font-mono bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-bold shrink-0">{emp.empId}</span>
+                        </div>
+                        <p className="text-[11px] text-gray-500 truncate mt-0.5">
+                          {emp.department} {emp.phone ? `• ${emp.phone}` : ''}
+                        </p>
+                        <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                          {isCurrentlyIn ? (
+                            <span className="inline-flex items-center text-[10px] font-extrabold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-md border border-emerald-200">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse mr-1"></span>
+                              Currently IN ({latestRecord?.inTime})
+                            </span>
+                          ) : latestRecord?.outTime ? (
+                            <span className="inline-flex items-center text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md border border-slate-200">
+                              OUT at {latestRecord.outTime} {latestRecord.totalHours ? `(${latestRecord.totalHours})` : ''}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-gray-400 bg-gray-50 px-2 py-0.5 rounded-md border border-gray-200">
+                              Not Checked In Today
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 flex items-center space-x-1.5">
+                        {isCurrentlyIn ? (
+                          <button
+                            type="button"
+                            disabled={isProcessing}
+                            onClick={() => handleManualPunch(emp, 'OUT')}
+                            className="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:opacity-50 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl shadow-xs transition-all flex items-center space-x-1 active:scale-95 cursor-pointer"
+                          >
+                            {isProcessing ? (
+                              <Loader2 size={13} className="animate-spin" />
+                            ) : (
+                              <>
+                                <LogOut size={13} />
+                                <span>Check OUT</span>
+                              </>
+                            )}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={isProcessing}
+                            onClick={() => handleManualPunch(emp, 'IN')}
+                            className="bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl shadow-xs transition-all flex items-center space-x-1 active:scale-95 cursor-pointer"
+                          >
+                            {isProcessing ? (
+                              <Loader2 size={13} className="animate-spin" />
+                            ) : (
+                              <>
+                                <LogIn size={13} />
+                                <span>Check IN</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer Summary */}
+            <div className="p-3 bg-gray-50 border-t border-gray-100 text-[11px] text-gray-500 flex items-center justify-between shrink-0 font-medium">
+              <span>{filteredForgotQrStaff.length} staff member(s)</span>
+              <button 
+                type="button" 
+                onClick={fetchTodayAttendance}
+                className="text-amber-700 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <RefreshCw size={12} /> Refresh
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
