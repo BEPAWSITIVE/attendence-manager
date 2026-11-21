@@ -9,10 +9,12 @@ import {
   Users, 
   Contact, 
   ShieldAlert, 
-  XCircle
+  XCircle,
+  Building2
 } from 'lucide-react';
 import RealtimeVerificationTimestamp from '@/components/RealtimeVerificationTimestamp';
 import { formatIndianDateTime } from '@/lib/timeFormat';
+import { getEmployeeOrganisation } from '@/lib/organisation';
 
 type Props = {
   params: { id: string };
@@ -27,14 +29,14 @@ async function fetchEmployee(id: string): Promise<Employee | null> {
   try {
     const { data, error } = await supabase
       .from('employees')
-      .select('empId, name, department, phone, createdAt, category, vehicle_plate, document_url, group_members')
+      .select('*')
       .eq('empId', decodedId)
       .maybeSingle();
 
     if (error || !data) {
       const { data: fallbackData } = await supabase
         .from('employees')
-        .select('empId, name, department, phone, createdAt, category, vehicle_plate, document_url, group_members')
+        .select('*')
         .ilike('empId', decodedId)
         .maybeSingle();
       return fallbackData || null;
@@ -48,7 +50,7 @@ async function fetchEmployee(id: string): Promise<Employee | null> {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const emp = await fetchEmployee(params.id);
-  const orgName = "Peepal Farm";
+  const orgName = emp ? (getEmployeeOrganisation(emp) || "Peepal Farm") : "Peepal Farm";
 
   if (!emp) {
     return {
@@ -72,6 +74,12 @@ export default async function VerifyPage({ params }: Props) {
   const rawId = params.id;
   const decodedId = decodeURIComponent(rawId || '').trim();
   const emp = await fetchEmployee(decodedId);
+  const organisation = getEmployeeOrganisation(emp);
+  const cleanGroupMembers = emp?.group_members
+    ?.split(',')
+    .map(m => m.trim())
+    .filter(m => m && !m.startsWith('__'))
+    .join(', ');
 
   // Live real-time timestamp formatted in Indian Standard Time (IST)
   const verifiedTimeString = formatIndianDateTime(new Date());
@@ -143,6 +151,23 @@ export default async function VerifyPage({ params }: Props) {
                   {/* Details Cards */}
                   <div className="space-y-2.5 pt-1">
                     
+                    {/* Organisation Card */}
+                    {organisation && (
+                      <div className="flex items-center p-3 rounded-[20px] bg-gradient-to-r from-[#fef3c7]/60 to-[#fffdf5] border border-amber-200/70 shadow-xs">
+                        <div className="w-12 h-12 rounded-2xl bg-[#fef3c7] border border-[#fde68a] flex items-center justify-center text-[#d97706] shrink-0 mr-3.5 shadow-xs">
+                          <Building2 size={22} className="stroke-[2.2]" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-xs font-semibold text-amber-800 block leading-tight">
+                            Organisation
+                          </span>
+                          <span className="text-base font-bold text-slate-900 truncate block mt-0.5">
+                            {organisation}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Department / Role Card */}
                     <div className="flex items-center p-3 rounded-[20px] bg-gradient-to-r from-[#f0f4ff]/80 to-[#f9faff] border border-blue-100/60 shadow-xs">
                       <div className="w-12 h-12 rounded-2xl bg-[#eff6ff] border border-[#dbeafe] flex items-center justify-center text-[#1d63ed] shrink-0 mr-3.5 shadow-xs">
@@ -191,13 +216,13 @@ export default async function VerifyPage({ params }: Props) {
                     )}
 
                     {/* Group Members (if applicable) */}
-                    {emp.group_members && (
+                    {cleanGroupMembers && (
                       <div className="p-3 rounded-[20px] bg-slate-50 border border-slate-200/80">
                         <span className="text-xs font-semibold text-slate-500 block mb-1">
                           Accompanying Group Members
                         </span>
                         <span className="text-sm font-bold text-slate-800">
-                          {emp.group_members}
+                          {cleanGroupMembers}
                         </span>
                       </div>
                     )}
@@ -214,7 +239,7 @@ export default async function VerifyPage({ params }: Props) {
                         Official Digital Credential Valid
                       </p>
                       <p className="text-[#166534] mt-0.5 leading-normal">
-                        This individual is an authorized representative of <strong className="font-bold text-[#0a4a25]">Peepal Farm</strong>. The credential record is synchronized directly with our live registry.
+                        This individual is an authorized representative of <strong className="font-bold text-[#0a4a25]">{organisation || "Peepal Farm"}</strong>. The credential record is synchronized directly with our live registry.
                       </p>
                     </div>
                   </div>

@@ -17,6 +17,8 @@ export interface Employee {
   group_members?: string;
   allow_entry_time_edit?: boolean;
   default_checkout_time?: string;
+  organisation?: string;
+  organization?: string;
 }
 
 export interface AttendanceRecord {

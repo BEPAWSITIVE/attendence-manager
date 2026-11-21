@@ -1,4 +1,5 @@
 import { Employee } from './supabase';
+import { getEmployeeOrganisation } from './organisation';
 import JSZip from 'jszip';
 import QRCode from 'qrcode';
 
@@ -201,7 +202,9 @@ export function generateCardCanvas(
 
   ctx.fillStyle = '#64748b';
   ctx.font = 'bold 20px sans-serif';
-  ctx.fillText((emp.department || 'GENERAL').toUpperCase(), canvas.width / 2, 550);
+  const org = getEmployeeOrganisation(emp);
+  const deptAndOrg = [emp.department || 'GENERAL', org].filter(Boolean).join(' • ');
+  ctx.fillText(deptAndOrg.toUpperCase(), canvas.width / 2, 550);
 
   // 7. Divider Line
   ctx.strokeStyle = '#e2e8f0';

@@ -30,10 +30,12 @@ import {
   ExternalLink,
   ShieldCheck,
   FolderArchive,
-  Globe
+  Globe,
+  Building2
 } from "lucide-react";
 import { appLogger } from "@/lib/logger";
 import { getDefaultCheckoutTime } from "@/lib/autoCheckout";
+import { ORGANISATIONS, DEFAULT_ORGANISATION, getEmployeeOrganisation } from "@/lib/organisation";
 import { convertTo24Hour, formatTimeForDisplay, formatTimeForSave, parseDateAnd24HourToISTTimestamp } from "@/lib/timeFormat";
 import { updateCachedAttendance } from "@/lib/offlineBackup";
 import { 
@@ -77,6 +79,7 @@ export default function EmployeesTab({
   const [allowEntryTime, setAllowEntryTime] = useState(false);
   const [enableDefaultCheckout, setEnableDefaultCheckout] = useState(false);
   const [defaultCheckoutTime, setDefaultCheckoutTime] = useState("");
+  const [organisation, setOrganisation] = useState<string>(DEFAULT_ORGANISATION);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
 
@@ -105,6 +108,7 @@ export default function EmployeesTab({
   const [editAllowEntryTime, setEditAllowEntryTime] = useState(false);
   const [editEnableDefaultCheckout, setEditEnableDefaultCheckout] = useState(false);
   const [editDefaultCheckoutTime, setEditDefaultCheckoutTime] = useState("");
+  const [editOrganisation, setEditOrganisation] = useState<string>(DEFAULT_ORGANISATION);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -227,6 +231,7 @@ export default function EmployeesTab({
     setDocumentFile(null);
     setGroupMembers([""]);
     setAllowEntryTime(false);
+    setOrganisation(DEFAULT_ORGANISATION);
     setShowForm(true);
   };
 
@@ -258,8 +263,9 @@ export default function EmployeesTab({
     const plateMatch = (emp.vehicle_plate || "").toLowerCase().includes(q);
     const groupMatch = (emp.group_members || "").toLowerCase().includes(q);
     const catMatch = (emp.category || "Staff").toLowerCase().includes(q);
+    const orgMatch = getEmployeeOrganisation(emp).toLowerCase().includes(q);
 
-    return nameMatch || idMatch || deptMatch || phoneMatch || plateMatch || groupMatch || catMatch;
+    return nameMatch || idMatch || deptMatch || phoneMatch || plateMatch || groupMatch || catMatch || orgMatch;
   });
 
   const handleOpenEditModal = (emp: Employee) => {
@@ -276,11 +282,12 @@ export default function EmployeesTab({
     const defCheckout = getDefaultCheckoutTime(emp);
     setEditEnableDefaultCheckout(!!defCheckout);
     setEditDefaultCheckoutTime(defCheckout || "19:00");
-    if (emp.group_members && !emp.group_members.includes('__ALLOW_ENTRY_TIME_EDIT__') && !emp.group_members.includes('__DEFAULT_CHECKOUT:')) {
-      setEditGroupMembers(emp.group_members.split(",").map(m => m.trim()).filter(Boolean));
-    } else {
-      setEditGroupMembers([""]);
-    }
+    setEditOrganisation(getEmployeeOrganisation(emp) || DEFAULT_ORGANISATION);
+    const cleanMembers = (emp.group_members || '')
+      .split(',')
+      .map(m => m.trim())
+      .filter(m => m && !m.startsWith('__'));
+    setEditGroupMembers(cleanMembers.length > 0 ? cleanMembers : [""]);
   };
 
   const handleSaveEdit = async (e: React.FormEvent) => {
@@ -315,6 +322,7 @@ export default function EmployeesTab({
         const tags: string[] = [];
         if (editAllowEntryTime) tags.push('__ALLOW_ENTRY_TIME_EDIT__');
         if (defaultCheckoutVal) tags.push(`__DEFAULT_CHECKOUT:${defaultCheckoutVal}__`);
+        if (editOrganisation) tags.push(`__ORG:${editOrganisation}__`);
         groupMembersVal = tags.length > 0 ? tags.join(", ") : undefined;
       }
 
@@ -329,6 +337,7 @@ export default function EmployeesTab({
         group_members: groupMembersVal,
         allow_entry_time_edit: editAllowEntryTime,
         default_checkout_time: defaultCheckoutVal || undefined,
+        organisation: editCategory === 'Staff' ? (editOrganisation || undefined) : undefined,
       };
 
       if (navigator.onLine) {
@@ -343,7 +352,8 @@ export default function EmployeesTab({
             document_url: updatedEmp.document_url || null,
             group_members: updatedEmp.group_members || null,
             allow_entry_time_edit: updatedEmp.allow_entry_time_edit,
-            default_checkout_time: updatedEmp.default_checkout_time || null
+            default_checkout_time: updatedEmp.default_checkout_time || null,
+            organisation: updatedEmp.organisation || null
           })
           .eq('empId', updatedEmp.empId);
 
@@ -508,7 +518,8 @@ export default function EmployeesTab({
     
     const nameIdx = headers.findIndex(h => h.includes('name') || h === 'person' || h === 'employee');
     const catIdx = headers.findIndex(h => h.includes('cat') || h.includes('type') || h.includes('role') || h.includes('designation'));
-    const deptIdx = headers.findIndex(h => h.includes('dept') || h.includes('department') || h.includes('purpose') || h.includes('org'));
+    const deptIdx = headers.findIndex(h => h.includes('dept') || h.includes('department') || h.includes('purpose'));
+    const orgIdx = headers.findIndex(h => h === 'org' || h === 'organisation' || h === 'organization' || h.includes('organisation') || h.includes('organization'));
     const phoneIdx = headers.findIndex(h => h.includes('phone') || h.includes('mobile') || h.includes('contact') || h.includes('cell'));
     const idNumIdx = headers.findIndex(h => h.includes('identity') || h.includes('aadhar') || h.includes('pan') || h.includes('plate') || h.includes('license'));
     const empIdIdx = headers.findIndex(h => h === 'empid' || h === 'id' || h === 'code' || h === 'employeeid');
@@ -532,6 +543,13 @@ export default function EmployeesTab({
       let dept = deptIdx !== -1 && row[deptIdx] ? row[deptIdx].trim() : '';
       if (!dept) {
         dept = cat === 'Vehicle' ? 'Logistics' : 'General';
+      }
+
+      let orgVal: string | undefined = undefined;
+      if (orgIdx !== -1 && row[orgIdx]) {
+        const rawOrg = row[orgIdx].trim();
+        const matched = ORGANISATIONS.find(o => o.toLowerCase() === rawOrg.toLowerCase());
+        orgVal = matched || rawOrg;
       }
 
       let ph = phoneIdx !== -1 && row[phoneIdx] ? row[phoneIdx].trim() : '';
@@ -567,6 +585,8 @@ export default function EmployeesTab({
         department: dept,
         phone: ph || '+91 ',
         vehicle_plate: idVal || undefined,
+        organisation: cat === 'Staff' ? (orgVal || DEFAULT_ORGANISATION) : undefined,
+        group_members: (cat === 'Staff' && (orgVal || DEFAULT_ORGANISATION)) ? `__ORG:${orgVal || DEFAULT_ORGANISATION}__` : undefined,
         createdAt: new Date().toISOString()
       });
     }
@@ -575,27 +595,27 @@ export default function EmployeesTab({
   };
 
   const downloadCategoryTemplate = (categoryType: 'All' | 'Staff' | 'Volunteer' | 'Vehicle' | 'Visitor' = 'All') => {
-    const rows: string[] = ["Name,Category,Department,Phone,Identity_ID"];
+    const rows: string[] = ["Name,Category,Department,Phone,Identity_ID,Organisation"];
     let filename = `sample_${categoryType.toLowerCase()}_template.csv`;
 
     if (categoryType === 'Staff') {
-      rows.push("Ramesh Sharma,Staff,Operations,+91 9876543210,Aadhar-1234-5678");
-      rows.push("Priya Singh,Staff,Administration,+91 9876543211,PAN-ABCDE1234F");
+      rows.push("Ramesh Sharma,Staff,Operations,+91 9876543210,Aadhar-1234-5678,Peepal Farm");
+      rows.push("Priya Singh,Staff,Administration,+91 9876543211,PAN-ABCDE1234F,Sine Info");
     } else if (categoryType === 'Volunteer') {
-      rows.push("Sunita Patel,Volunteer,Kitchen,+91 9876543212,Aadhar-5678-9012");
-      rows.push("Amit Kumar,Volunteer,Event Support,+91 9876543213,Voter-XYZ9876");
+      rows.push("Sunita Patel,Volunteer,Kitchen,+91 9876543212,Aadhar-5678-9012,");
+      rows.push("Amit Kumar,Volunteer,Event Support,+91 9876543213,Voter-XYZ9876,");
     } else if (categoryType === 'Vehicle') {
-      rows.push("Delivery Van 01,Vehicle,Logistics,,MH-12-AB-1234");
-      rows.push("Patrol Jeep 02,Vehicle,Security,,DL-01-CD-5678");
+      rows.push("Delivery Van 01,Vehicle,Logistics,,MH-12-AB-1234,");
+      rows.push("Patrol Jeep 02,Vehicle,Security,,DL-01-CD-5678,");
     } else if (categoryType === 'Visitor') {
-      rows.push("Rahul Verma,Visitor,Maintenance,+91 9876543214,DL-12345678");
-      rows.push("Anjali Roy,Visitor,Client Meeting,+91 9876543215,Aadhar-4321-8765");
+      rows.push("Rahul Verma,Visitor,Maintenance,+91 9876543214,DL-12345678,");
+      rows.push("Anjali Roy,Visitor,Client Meeting,+91 9876543215,Aadhar-4321-8765,");
     } else {
       filename = "sample_all_categories_template.csv";
-      rows.push("Ramesh Sharma,Staff,Operations,+91 9876543210,Aadhar-1234-5678");
-      rows.push("Sunita Patel,Volunteer,Kitchen,+91 9876543211,PAN-ABCDE1234F");
-      rows.push("Delivery Van 01,Vehicle,Logistics,,MH-12-AB-1234");
-      rows.push("Rahul Verma,Visitor,Maintenance,+91 9876543214,DL-12345678");
+      rows.push("Ramesh Sharma,Staff,Operations,+91 9876543210,Aadhar-1234-5678,Peepal Farm");
+      rows.push("Sunita Patel,Volunteer,Kitchen,+91 9876543211,PAN-ABCDE1234F,");
+      rows.push("Delivery Van 01,Vehicle,Logistics,,MH-12-AB-1234,");
+      rows.push("Rahul Verma,Visitor,Maintenance,+91 9876543214,DL-12345678,");
     }
 
     const csvContent = rows.join("\n");
@@ -710,6 +730,7 @@ export default function EmployeesTab({
       const tags: string[] = [];
       if (allowEntryTime) tags.push('__ALLOW_ENTRY_TIME_EDIT__');
       if (defaultCheckoutVal) tags.push(`__DEFAULT_CHECKOUT:${defaultCheckoutVal}__`);
+      if (organisation) tags.push(`__ORG:${organisation}__`);
       groupMembersVal = tags.length > 0 ? tags.join(", ") : undefined;
     }
 
@@ -724,6 +745,7 @@ export default function EmployeesTab({
       group_members: groupMembersVal,
       allow_entry_time_edit: allowEntryTime,
       default_checkout_time: defaultCheckoutVal || undefined,
+      organisation: category === 'Staff' ? (organisation || undefined) : undefined,
       createdAt: new Date().toISOString()
     };
     
@@ -734,6 +756,8 @@ export default function EmployeesTab({
           const sanitized = { ...newEmp };
           delete sanitized.allow_entry_time_edit;
           delete sanitized.default_checkout_time;
+          delete sanitized.organisation;
+          delete sanitized.organization;
           const { error: retryErr } = await supabase.from('employees').insert([sanitized]);
           if (retryErr) throw retryErr;
         }
@@ -752,6 +776,7 @@ export default function EmployeesTab({
     
     setEnableDefaultCheckout(false);
     setDefaultCheckoutTime("");
+    setOrganisation(DEFAULT_ORGANISATION);
     setIsUploading(false);
     setShowForm(false);
     fetchEmployees();
@@ -1203,6 +1228,24 @@ export default function EmployeesTab({
                 )}
 
                 {category === 'Staff' && (
+                  <div className="pt-2">
+                    <label className="block text-xs font-bold text-gray-500 mb-1 flex items-center space-x-1">
+                      <Building2 size={13} className="text-gray-500" />
+                      <span>Organisation</span>
+                    </label>
+                    <select
+                      value={organisation}
+                      onChange={e => setOrganisation(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm"
+                    >
+                      {ORGANISATIONS.map(org => (
+                        <option key={org} value={org}>{org}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {category === 'Staff' && (
                   <>
                     <div className="p-3.5 bg-gradient-to-r from-blue-50/80 to-indigo-50/80 border border-blue-200/80 rounded-2xl flex items-center justify-between shadow-2xs mt-3">
                       <div className="pr-3">
@@ -1615,6 +1658,11 @@ export default function EmployeesTab({
                     <span className="flex items-center text-[10px] uppercase tracking-wider font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-md shrink-0">
                       {getCategoryIcon(emp.category)} <span className="ml-1">{emp.category || 'Staff'}</span>
                     </span>
+                    {getEmployeeOrganisation(emp) && (
+                      <span className="inline-flex items-center text-[9px] uppercase tracking-wider font-extrabold bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded-md shrink-0" title={`Organisation: ${getEmployeeOrganisation(emp)}`}>
+                        <Building2 size={10} className="mr-0.5 text-amber-700" /> {getEmployeeOrganisation(emp)}
+                      </span>
+                    )}
                     {emp.category === 'Staff' && (emp.allow_entry_time_edit === true || (typeof emp.group_members === 'string' && emp.group_members.includes('__ALLOW_ENTRY_TIME_EDIT__'))) && (
                       <span className="hidden sm:inline-flex items-center text-[9px] uppercase tracking-wider font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded-md shrink-0" title="Guard can edit entry time">
                         <Clock size={10} className="mr-0.5 text-emerald-600" /> Time Edit
@@ -1628,6 +1676,7 @@ export default function EmployeesTab({
                   </div>
                   <p className="text-xs text-gray-500 mt-0.5 font-mono truncate">
                     {emp.empId} • {emp.category === 'Vehicle' ? emp.vehicle_plate : emp.department}
+                    {getEmployeeOrganisation(emp) && ` • ${getEmployeeOrganisation(emp)}`}
                     {emp.vehicle_plate && emp.category !== 'Vehicle' && ` • ID: ${emp.vehicle_plate}`}
                   </p>
                 </div>
@@ -1775,6 +1824,25 @@ export default function EmployeesTab({
                       className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono uppercase text-sm"
                     />
                   </div>
+                </div>
+              )}
+
+              {/* Organisation Dropdown (for Staff) */}
+              {editCategory === 'Staff' && (
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 mb-1 flex items-center space-x-1">
+                    <Building2 size={13} className="text-gray-500" />
+                    <span>Organisation</span>
+                  </label>
+                  <select
+                    value={editOrganisation}
+                    onChange={(e) => setEditOrganisation(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm"
+                  >
+                    {ORGANISATIONS.map(org => (
+                      <option key={org} value={org}>{org}</option>
+                    ))}
+                  </select>
                 </div>
               )}
 
@@ -2275,12 +2343,27 @@ export default function EmployeesTab({
                 <h2 className="text-xl font-bold text-gray-800 text-center">{selectedEmployee.name}</h2>
                 <p className="text-gray-500 font-mono text-xs mt-0.5 font-bold">{selectedEmployee.empId} • {selectedEmployee.department}</p>
 
-                {selectedEmployee.group_members && (
-                  <div className="mt-2.5 bg-gray-50 p-2.5 rounded-xl w-full text-center border border-gray-100">
-                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide block mb-0.5">Group Members</span>
-                    <span className="text-xs font-medium text-gray-700">{selectedEmployee.group_members}</span>
+                {getEmployeeOrganisation(selectedEmployee) && (
+                  <div className="mt-2 inline-flex items-center space-x-1.5 px-3 py-1 bg-amber-50 border border-amber-200/80 rounded-full text-amber-900 text-xs font-semibold">
+                    <Building2 size={13} className="text-amber-700" />
+                    <span>{getEmployeeOrganisation(selectedEmployee)}</span>
                   </div>
                 )}
+
+                {(() => {
+                  const cleanGroup = selectedEmployee.group_members
+                    ?.split(',')
+                    .map(m => m.trim())
+                    .filter(m => m && !m.startsWith('__'))
+                    .join(', ');
+                  if (!cleanGroup) return null;
+                  return (
+                    <div className="mt-2.5 bg-gray-50 p-2.5 rounded-xl w-full text-center border border-gray-100">
+                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide block mb-0.5">Group Members</span>
+                      <span className="text-xs font-medium text-gray-700">{cleanGroup}</span>
+                    </div>
+                  );
+                })()}
                 
                 {selectedEmployee.document_url && (
                   <a 
