@@ -3,6 +3,7 @@ import { localdb } from './localdb';
 import { getCachedEmployees, getCachedEmployeeById } from './employeeCache';
 import { updateCachedAttendance } from './offlineBackup';
 import { convertTo24Hour, formatTimeForDisplay, parseDateAnd24HourToISTTimestamp } from './timeFormat';
+import { isEmployeeExited } from './exitStatus';
 
 /**
  * Extracts and normalizes the configured default check-out time (24-hour "HH:mm") for an employee.
@@ -111,6 +112,7 @@ export async function processAutoCheckouts(): Promise<{ checkedOutCount: number;
       }
 
       if (!emp) continue;
+      if (isEmployeeExited(emp)) continue;
 
       const defCheckout24 = getDefaultCheckoutTime(emp);
       if (!defCheckout24) continue;

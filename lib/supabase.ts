@@ -19,6 +19,7 @@ export interface Employee {
   default_checkout_time?: string;
   organisation?: string;
   organization?: string;
+  exit_date?: string | null;
 }
 
 export interface AttendanceRecord {

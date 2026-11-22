@@ -9,6 +9,7 @@ import { getCachedEmployees, getCachedEmployeeById } from "@/lib/employeeCache";
 import { formatTimeForSave, formatTimeForDisplay } from "@/lib/timeFormat";
 import { extractEmpIdFromScan } from "@/lib/qrUtils";
 import { processAutoCheckouts } from "@/lib/autoCheckout";
+import { getEmployeeExitDate, isEmployeeExited } from "@/lib/exitStatus";
 
 const getCachedProfile = (id: string): Employee | null => {
   return getCachedEmployeeById(id);
@@ -1215,6 +1216,24 @@ export default function ScannerTab() {
       }
 
       const emp = empData;
+
+      // Reject scans for staff who have an exit date recorded
+      if (isEmployeeExited(emp)) {
+        const exitDate = getEmployeeExitDate(emp);
+        playWarningSound();
+        setScanResult({
+          success: false,
+          msg: `Access Denied: QR deactivated. ${emp.name} (${emp.empId}) left the organisation on ${exitDate || 'recorded date'}. Cannot log attendance.`
+        });
+        setTimeout(() => {
+          setScanResult(null);
+          if (scannerRef.current) {
+            try { scannerRef.current.resume(); } catch(e) {}
+          }
+        }, 4000);
+        return;
+      }
+
       let lastRecord = existingRecords.length > 0 ? existingRecords[existingRecords.length - 1] : null;
 
       const MIN_COOLDOWN_MS = 5 * 60 * 1000; // 5-minute cooldown between scans

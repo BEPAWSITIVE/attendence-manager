@@ -10,11 +10,13 @@ import {
   Contact, 
   ShieldAlert, 
   XCircle,
-  Building2
+  Building2,
+  CalendarOff
 } from 'lucide-react';
 import RealtimeVerificationTimestamp from '@/components/RealtimeVerificationTimestamp';
 import { formatIndianDateTime } from '@/lib/timeFormat';
 import { getEmployeeOrganisation } from '@/lib/organisation';
+import { getEmployeeExitDate, isEmployeeExited } from '@/lib/exitStatus';
 
 type Props = {
   params: { id: string };
@@ -51,11 +53,19 @@ async function fetchEmployee(id: string): Promise<Employee | null> {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const emp = await fetchEmployee(params.id);
   const orgName = emp ? (getEmployeeOrganisation(emp) || "Peepal Farm") : "Peepal Farm";
+  const exitDate = getEmployeeExitDate(emp);
 
   if (!emp) {
     return {
       title: `Verification Failed | ${orgName}`,
       description: `Official personnel verification check for ID ${params.id}.`,
+    };
+  }
+
+  if (exitDate) {
+    return {
+      title: `Inactive / Exited: ${emp.name} (${emp.empId}) | ${orgName}`,
+      description: `Personnel status: Former employee (Exit Date: ${exitDate}) at ${orgName}. Status: Deactivated / Inactive.`,
     };
   }
 
@@ -75,6 +85,8 @@ export default async function VerifyPage({ params }: Props) {
   const decodedId = decodeURIComponent(rawId || '').trim();
   const emp = await fetchEmployee(decodedId);
   const organisation = getEmployeeOrganisation(emp);
+  const exitDate = getEmployeeExitDate(emp);
+  const isExited = !!exitDate;
   const cleanGroupMembers = emp?.group_members
     ?.split(',')
     .map(m => m.trim())
@@ -129,9 +141,11 @@ export default async function VerifyPage({ params }: Props) {
                   
                   {/* Category Pill */}
                   <div className="flex justify-center mt-2">
-                    <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-[#dcfce7] text-[#15803d] font-bold text-xs uppercase tracking-wider">
+                    <div className={`inline-flex items-center space-x-1.5 px-3 py-1 rounded-full font-bold text-xs uppercase tracking-wider ${
+                      isExited ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-[#dcfce7] text-[#15803d]'
+                    }`}>
                       <Users size={14} className="stroke-[2.5]" />
-                      <span>{emp.category || 'STAFF'}</span>
+                      <span>{isExited ? `FORMER ${emp.category || 'STAFF'} • INACTIVE` : (emp.category || 'STAFF')}</span>
                     </div>
                   </div>
 
@@ -151,6 +165,23 @@ export default async function VerifyPage({ params }: Props) {
                   {/* Details Cards */}
                   <div className="space-y-2.5 pt-1">
                     
+                    {/* Exit Date Card (if exited) */}
+                    {isExited && (
+                      <div className="flex items-center p-3 rounded-[20px] bg-gradient-to-r from-red-50/90 to-[#fff5f5] border border-red-200 shadow-xs">
+                        <div className="w-12 h-12 rounded-2xl bg-red-100 border border-red-200 flex items-center justify-center text-red-600 shrink-0 mr-3.5 shadow-xs">
+                          <CalendarOff size={22} className="stroke-[2.2]" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-xs font-semibold text-red-700 block leading-tight">
+                            Exit Date (Relieved)
+                          </span>
+                          <span className="text-base font-bold text-red-950 truncate block mt-0.5">
+                            {exitDate}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Organisation Card */}
                     {organisation && (
                       <div className="flex items-center p-3 rounded-[20px] bg-gradient-to-r from-[#fef3c7]/60 to-[#fffdf5] border border-amber-200/70 shadow-xs">
@@ -228,21 +259,38 @@ export default async function VerifyPage({ params }: Props) {
                     )}
                   </div>
 
-                  {/* Official Digital Credential Valid Box */}
-                  <div className="p-3.5 rounded-[22px] bg-[#ecfdf5] border border-[#a7f3d0] flex items-start space-x-3.5 shadow-xs">
-                    <div className="w-10 h-10 rounded-full bg-[#0a7e3b] flex items-center justify-center text-white shrink-0 mt-0.5 shadow-xs">
-                      <Check size={22} className="stroke-[3.5] text-white" />
+                  {/* Official Digital Credential Valid / Inactive Box */}
+                  {isExited ? (
+                    <div className="p-3.5 rounded-[22px] bg-[#fef2f2] border border-[#fecaca] flex items-start space-x-3.5 shadow-xs">
+                      <div className="w-10 h-10 rounded-full bg-[#dc2626] flex items-center justify-center text-white shrink-0 mt-0.5 shadow-xs">
+                        <XCircle size={22} className="stroke-[2.5] text-white" />
+                      </div>
+                      <div className="h-10 w-[1.5px] bg-[#dc2626]/30 shrink-0 mt-0.5"></div>
+                      <div className="text-xs text-[#991b1b] leading-relaxed flex-1">
+                        <p className="font-bold text-sm text-[#7f1d1d]">
+                          Credential Inactive • Former Personnel
+                        </p>
+                        <p className="text-[#991b1b] mt-0.5 leading-normal">
+                          This individual is no longer an active representative of <strong className="font-bold text-[#7f1d1d]">{organisation || "Peepal Farm"}</strong> (Relieved / Exit Date: <strong className="font-bold text-[#7f1d1d]">{exitDate}</strong>). This credential is deactivated and cannot be used for attendance or facility access.
+                        </p>
+                      </div>
                     </div>
-                    <div className="h-10 w-[1.5px] bg-[#0a7e3b]/30 shrink-0 mt-0.5"></div>
-                    <div className="text-xs text-[#14532d] leading-relaxed flex-1">
-                      <p className="font-bold text-sm text-[#0a4a25]">
-                        Official Digital Credential Valid
-                      </p>
-                      <p className="text-[#166534] mt-0.5 leading-normal">
-                        This individual is an authorized representative of <strong className="font-bold text-[#0a4a25]">{organisation || "Peepal Farm"}</strong>. The credential record is synchronized directly with our live registry.
-                      </p>
+                  ) : (
+                    <div className="p-3.5 rounded-[22px] bg-[#ecfdf5] border border-[#a7f3d0] flex items-start space-x-3.5 shadow-xs">
+                      <div className="w-10 h-10 rounded-full bg-[#0a7e3b] flex items-center justify-center text-white shrink-0 mt-0.5 shadow-xs">
+                        <Check size={22} className="stroke-[3.5] text-white" />
+                      </div>
+                      <div className="h-10 w-[1.5px] bg-[#0a7e3b]/30 shrink-0 mt-0.5"></div>
+                      <div className="text-xs text-[#14532d] leading-relaxed flex-1">
+                        <p className="font-bold text-sm text-[#0a4a25]">
+                          Official Digital Credential Valid
+                        </p>
+                        <p className="text-[#166534] mt-0.5 leading-normal">
+                          This individual is an authorized representative of <strong className="font-bold text-[#0a4a25]">{organisation || "Peepal Farm"}</strong>. The credential record is synchronized directly with our live registry.
+                        </p>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Real-time Verification Timestamp (Synced in Live India Standard Time) */}
                   <RealtimeVerificationTimestamp initialTime={verifiedTimeString} />

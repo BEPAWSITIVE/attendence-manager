@@ -307,6 +307,34 @@ async function processScannedEmployee(scannedData) {
     renderEmployeeList();
   }
 
+  const exitDateMatch = employee.exit_date || (employee.group_members && employee.group_members.match(/__EXIT_DATE:([^_\n,]+)__/)?.[1]);
+  if (exitDateMatch) {
+    const feedbackCard = document.getElementById('feedbackCard');
+    const feedbackAvatar = document.getElementById('feedbackAvatar');
+    const feedbackEmpName = document.getElementById('feedbackEmpName');
+    const feedbackEmpDetails = document.getElementById('feedbackEmpDetails');
+    const feedbackTitleText = document.getElementById('feedbackTitleText');
+    const feedbackTimeChip = document.getElementById('feedbackTimeChip');
+    const feedbackTimestamp = document.getElementById('feedbackTimestamp');
+
+    if (feedbackCard) {
+      feedbackCard.className = 'feedback-card';
+      feedbackCard.classList.add('error');
+      if (feedbackAvatar) feedbackAvatar.textContent = '!';
+      if (feedbackEmpName) feedbackEmpName.textContent = employee.name;
+      if (feedbackEmpDetails) feedbackEmpDetails.textContent = `DEACTIVATED • Left on ${exitDateMatch}`;
+      if (feedbackTitleText) feedbackTitleText.textContent = 'ACCESS DENIED (QR Deactivated)';
+      if (feedbackTimeChip) feedbackTimeChip.textContent = 'Staff No Longer With Organisation';
+      if (feedbackTimestamp) feedbackTimestamp.textContent = currentTimeStr;
+      feedbackCard.style.display = 'block';
+      setTimeout(() => {
+        feedbackCard.style.display = 'none';
+        if (html5QrCodeScanner) resumeScanner();
+      }, 4000);
+    }
+    return;
+  }
+
   const recordId = `${todayStr}_${empId}`;
   let record = await Storage.getAttendanceRecord(recordId);
 

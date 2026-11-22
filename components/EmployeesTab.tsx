@@ -31,11 +31,16 @@ import {
   ShieldCheck,
   FolderArchive,
   Globe,
-  Building2
+  Building2,
+  UserMinus,
+  UserX,
+  CalendarOff
 } from "lucide-react";
 import { appLogger } from "@/lib/logger";
 import { getDefaultCheckoutTime } from "@/lib/autoCheckout";
 import { ORGANISATIONS, DEFAULT_ORGANISATION, getEmployeeOrganisation } from "@/lib/organisation";
+import { RECOMMENDED_DEPARTMENTS } from "@/lib/departments";
+import { getEmployeeExitDate, isEmployeeExited } from "@/lib/exitStatus";
 import { convertTo24Hour, formatTimeForDisplay, formatTimeForSave, parseDateAnd24HourToISTTimestamp } from "@/lib/timeFormat";
 import { updateCachedAttendance } from "@/lib/offlineBackup";
 import { 
@@ -109,6 +114,7 @@ export default function EmployeesTab({
   const [editEnableDefaultCheckout, setEditEnableDefaultCheckout] = useState(false);
   const [editDefaultCheckoutTime, setEditDefaultCheckoutTime] = useState("");
   const [editOrganisation, setEditOrganisation] = useState<string>(DEFAULT_ORGANISATION);
+  const [editExitDate, setEditExitDate] = useState<string>("");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -264,8 +270,9 @@ export default function EmployeesTab({
     const groupMatch = (emp.group_members || "").toLowerCase().includes(q);
     const catMatch = (emp.category || "Staff").toLowerCase().includes(q);
     const orgMatch = getEmployeeOrganisation(emp).toLowerCase().includes(q);
+    const exitMatch = isEmployeeExited(emp) && ("exited".includes(q) || "inactive".includes(q) || (getEmployeeExitDate(emp) || "").includes(q));
 
-    return nameMatch || idMatch || deptMatch || phoneMatch || plateMatch || groupMatch || catMatch || orgMatch;
+    return nameMatch || idMatch || deptMatch || phoneMatch || plateMatch || groupMatch || catMatch || orgMatch || exitMatch;
   });
 
   const handleOpenEditModal = (emp: Employee) => {
@@ -283,6 +290,8 @@ export default function EmployeesTab({
     setEditEnableDefaultCheckout(!!defCheckout);
     setEditDefaultCheckoutTime(defCheckout || "19:00");
     setEditOrganisation(getEmployeeOrganisation(emp) || DEFAULT_ORGANISATION);
+    const exitD = getEmployeeExitDate(emp);
+    setEditExitDate(exitD || "");
     const cleanMembers = (emp.group_members || '')
       .split(',')
       .map(m => m.trim())
@@ -323,6 +332,7 @@ export default function EmployeesTab({
         if (editAllowEntryTime) tags.push('__ALLOW_ENTRY_TIME_EDIT__');
         if (defaultCheckoutVal) tags.push(`__DEFAULT_CHECKOUT:${defaultCheckoutVal}__`);
         if (editOrganisation) tags.push(`__ORG:${editOrganisation}__`);
+        if (editExitDate) tags.push(`__EXIT_DATE:${editExitDate}__`);
         groupMembersVal = tags.length > 0 ? tags.join(", ") : undefined;
       }
 
@@ -338,6 +348,7 @@ export default function EmployeesTab({
         allow_entry_time_edit: editAllowEntryTime,
         default_checkout_time: defaultCheckoutVal || undefined,
         organisation: editCategory === 'Staff' ? (editOrganisation || undefined) : undefined,
+        exit_date: editCategory === 'Staff' ? (editExitDate || null) : null,
       };
 
       if (navigator.onLine) {
@@ -353,7 +364,8 @@ export default function EmployeesTab({
             group_members: updatedEmp.group_members || null,
             allow_entry_time_edit: updatedEmp.allow_entry_time_edit,
             default_checkout_time: updatedEmp.default_checkout_time || null,
-            organisation: updatedEmp.organisation || null
+            organisation: updatedEmp.organisation || null,
+            exit_date: updatedEmp.exit_date || null
           })
           .eq('empId', updatedEmp.empId);
 
@@ -520,6 +532,7 @@ export default function EmployeesTab({
     const catIdx = headers.findIndex(h => h.includes('cat') || h.includes('type') || h.includes('role') || h.includes('designation'));
     const deptIdx = headers.findIndex(h => h.includes('dept') || h.includes('department') || h.includes('purpose'));
     const orgIdx = headers.findIndex(h => h === 'org' || h === 'organisation' || h === 'organization' || h.includes('organisation') || h.includes('organization'));
+    const exitIdx = headers.findIndex(h => h.includes('exit') || h.includes('reliev'));
     const phoneIdx = headers.findIndex(h => h.includes('phone') || h.includes('mobile') || h.includes('contact') || h.includes('cell'));
     const idNumIdx = headers.findIndex(h => h.includes('identity') || h.includes('aadhar') || h.includes('pan') || h.includes('plate') || h.includes('license'));
     const empIdIdx = headers.findIndex(h => h === 'empid' || h === 'id' || h === 'code' || h === 'employeeid');
@@ -578,6 +591,17 @@ export default function EmployeesTab({
       }
       usedIds.add(id);
 
+      let exitVal: string | undefined = undefined;
+      if (exitIdx !== -1 && row[exitIdx]) {
+        exitVal = row[exitIdx].trim();
+      }
+
+      const tags: string[] = [];
+      if (cat === 'Staff') {
+        if (orgVal || DEFAULT_ORGANISATION) tags.push(`__ORG:${orgVal || DEFAULT_ORGANISATION}__`);
+        if (exitVal) tags.push(`__EXIT_DATE:${exitVal}__`);
+      }
+
       result.push({
         empId: id,
         name: rawName,
@@ -586,7 +610,8 @@ export default function EmployeesTab({
         phone: ph || '+91 ',
         vehicle_plate: idVal || undefined,
         organisation: cat === 'Staff' ? (orgVal || DEFAULT_ORGANISATION) : undefined,
-        group_members: (cat === 'Staff' && (orgVal || DEFAULT_ORGANISATION)) ? `__ORG:${orgVal || DEFAULT_ORGANISATION}__` : undefined,
+        exit_date: cat === 'Staff' ? (exitVal || null) : null,
+        group_members: tags.length > 0 ? tags.join(', ') : undefined,
         createdAt: new Date().toISOString()
       });
     }
@@ -866,6 +891,14 @@ export default function EmployeesTab({
   };
 
   const handleManualPunch = async (emp: Employee, targetAction: 'IN' | 'OUT') => {
+    if (isEmployeeExited(emp)) {
+      setForgotQrToast({
+        success: false,
+        msg: `Cannot log attendance: ${emp.name} has left the organisation (Exit Date: ${getEmployeeExitDate(emp)}). QR is deactivated.`
+      });
+      return;
+    }
+
     setForgotQrProcessingId(emp.empId);
     try {
       const today = new Date();
@@ -1198,10 +1231,17 @@ export default function EmployeesTab({
                     </label>
                     <input 
                       type="text" 
+                      list="register-dept-recommendations"
                       value={department} 
                       onChange={e => setDepartment(e.target.value)}
-                      className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder={category === 'Staff' ? "Type or pick department" : ""}
+                      className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
                     />
+                    <datalist id="register-dept-recommendations">
+                      {RECOMMENDED_DEPARTMENTS.map(dept => (
+                        <option key={dept} value={dept} />
+                      ))}
+                    </datalist>
                   </div>
                   <div className="w-1/2">
                     <label className="block text-xs font-bold text-gray-500 mb-1">Phone Number</label>
@@ -1213,6 +1253,41 @@ export default function EmployeesTab({
                     />
                   </div>
                 </div>
+
+                {category === 'Staff' && (
+                  <div className="p-3 bg-blue-50/50 rounded-2xl border border-blue-100">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-extrabold text-blue-900 uppercase tracking-wider">
+                        Recommended Departments:
+                      </span>
+                      {department && (
+                        <button
+                          type="button"
+                          onClick={() => setDepartment("")}
+                          className="text-[10px] text-blue-600 hover:text-blue-800 font-bold"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1 py-0.5">
+                      {RECOMMENDED_DEPARTMENTS.map(dept => (
+                        <button
+                          key={dept}
+                          type="button"
+                          onClick={() => setDepartment(dept)}
+                          className={`text-xs px-2.5 py-1 rounded-lg border transition-all font-medium cursor-pointer ${
+                            department.toLowerCase() === dept.toLowerCase()
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-2xs font-bold'
+                              : 'bg-white hover:bg-blue-100 text-gray-700 border-gray-200'
+                          }`}
+                        >
+                          {dept}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               
                 {category !== 'Parcel' && (
                   <div className="pt-2">
@@ -1658,6 +1733,11 @@ export default function EmployeesTab({
                     <span className="flex items-center text-[10px] uppercase tracking-wider font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-md shrink-0">
                       {getCategoryIcon(emp.category)} <span className="ml-1">{emp.category || 'Staff'}</span>
                     </span>
+                    {isEmployeeExited(emp) && (
+                      <span className="inline-flex items-center text-[9px] uppercase tracking-wider font-extrabold bg-red-100 text-red-800 border border-red-300 px-1.5 py-0.5 rounded-md shrink-0" title={`Staff exited organisation on ${getEmployeeExitDate(emp)}`}>
+                        <UserX size={10} className="mr-0.5 text-red-600" /> Exited ({getEmployeeExitDate(emp)})
+                      </span>
+                    )}
                     {getEmployeeOrganisation(emp) && (
                       <span className="inline-flex items-center text-[9px] uppercase tracking-wider font-extrabold bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded-md shrink-0" title={`Organisation: ${getEmployeeOrganisation(emp)}`}>
                         <Building2 size={10} className="mr-0.5 text-amber-700" /> {getEmployeeOrganisation(emp)}
@@ -1677,6 +1757,7 @@ export default function EmployeesTab({
                   <p className="text-xs text-gray-500 mt-0.5 font-mono truncate">
                     {emp.empId} • {emp.category === 'Vehicle' ? emp.vehicle_plate : emp.department}
                     {getEmployeeOrganisation(emp) && ` • ${getEmployeeOrganisation(emp)}`}
+                    {isEmployeeExited(emp) && ` • ⛔ Relieved: ${getEmployeeExitDate(emp)}`}
                     {emp.vehicle_plate && emp.category !== 'Vehicle' && ` • ID: ${emp.vehicle_plate}`}
                   </p>
                 </div>
@@ -1796,11 +1877,17 @@ export default function EmployeesTab({
                       </label>
                       <input 
                         type="text" 
+                        list="edit-dept-recommendations"
                         value={editDepartment} 
                         onChange={e => setEditDepartment(e.target.value)}
                         className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm"
                         placeholder="e.g. Operations, Admin"
                       />
+                      <datalist id="edit-dept-recommendations">
+                        {RECOMMENDED_DEPARTMENTS.map(dept => (
+                          <option key={dept} value={dept} />
+                        ))}
+                      </datalist>
                     </div>
                     <div className="w-1/2">
                       <label className="block text-xs font-bold text-gray-500 mb-1">Phone Number</label>
@@ -1813,6 +1900,41 @@ export default function EmployeesTab({
                       />
                     </div>
                   </div>
+
+                  {editCategory === 'Staff' && (
+                    <div className="p-3 bg-blue-50/50 rounded-2xl border border-blue-100">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[11px] font-extrabold text-blue-900 uppercase tracking-wider">
+                          Recommended Departments:
+                        </span>
+                        {editDepartment && (
+                          <button
+                            type="button"
+                            onClick={() => setEditDepartment("")}
+                            className="text-[10px] text-blue-600 hover:text-blue-800 font-bold"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1 py-0.5">
+                        {RECOMMENDED_DEPARTMENTS.map(dept => (
+                          <button
+                            key={dept}
+                            type="button"
+                            onClick={() => setEditDepartment(dept)}
+                            className={`text-xs px-2.5 py-1 rounded-lg border transition-all font-medium cursor-pointer ${
+                              editDepartment.toLowerCase() === dept.toLowerCase()
+                                ? 'bg-blue-600 text-white border-blue-600 shadow-2xs font-bold'
+                                : 'bg-white hover:bg-blue-100 text-gray-700 border-gray-200'
+                            }`}
+                          >
+                            {dept}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <div>
                     <label className="block text-xs font-bold text-gray-500 mb-1">Identity ID No. (Aadhar, PAN, etc.)</label>
@@ -1935,6 +2057,66 @@ export default function EmployeesTab({
                               {formatTimeForDisplay(preset)}
                             </button>
                           ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Exit Date / Organisation Relieving Section */}
+                  <div className={`p-3.5 rounded-2xl border transition-all mt-3 ${
+                    editExitDate ? 'bg-red-50/80 border-red-200' : 'bg-gray-50/80 border-gray-200'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <div className="pr-2">
+                        <div className="flex items-center space-x-1.5">
+                          <UserMinus size={16} className={editExitDate ? 'text-red-700' : 'text-gray-600'} />
+                          <span className={`text-xs font-extrabold ${editExitDate ? 'text-red-900' : 'text-gray-800'}`}>
+                            Exit Date (Deactivates QR)
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-gray-500 mt-0.5 leading-tight">
+                          For staff who switch or leave the organisation. Deactivates their attendance QR immediately.
+                        </p>
+                      </div>
+                      {!editExitDate ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const todayStr = new Date().toISOString().split('T')[0];
+                            setEditExitDate(todayStr);
+                          }}
+                          className="px-3 py-1.5 bg-red-100 hover:bg-red-200 active:bg-red-300 text-red-700 text-xs font-bold rounded-xl transition-all shadow-xs shrink-0 cursor-pointer"
+                        >
+                          + Add Exit Date
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setEditExitDate("")}
+                          className="px-2.5 py-1 bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 text-[11px] font-bold rounded-xl transition-all shadow-2xs shrink-0 cursor-pointer"
+                          title="Reactivate staff by removing exit date"
+                        >
+                          Clear / Reactivate
+                        </button>
+                      )}
+                    </div>
+
+                    {editExitDate && (
+                      <div className="mt-3 pt-3 border-t border-red-200/80 flex items-center justify-between space-x-3 animate-fade-in">
+                        <div className="flex-1">
+                          <label className="block text-[11px] font-bold text-red-800 mb-1">
+                            Official Relieving Date
+                          </label>
+                          <input
+                            type="date"
+                            value={editExitDate}
+                            onChange={(e) => setEditExitDate(e.target.value)}
+                            className="w-full bg-white border border-red-300 p-2 rounded-xl text-xs font-bold text-red-900 outline-none focus:ring-2 focus:ring-red-500 shadow-xs"
+                          />
+                        </div>
+                        <div className="text-[11px] text-red-600 font-extrabold self-end pb-2 flex items-center shrink-0">
+                          <span className="w-2 h-2 rounded-full bg-red-500 mr-1.5 animate-pulse"></span>
+                          QR Deactivated
                         </div>
                       </div>
                     )}
@@ -2275,15 +2457,37 @@ export default function EmployeesTab({
                   />
                 </div>
 
+                {/* Deactivated QR Alert if Staff Exited */}
+                {isEmployeeExited(selectedEmployee) && (
+                  <div className="w-full bg-red-50 border border-red-200 rounded-2xl p-3 mb-3 text-center animate-fade-in">
+                    <span className="text-xs font-bold text-red-800 flex items-center justify-center">
+                      <UserX size={15} className="mr-1.5 text-red-600" />
+                      QR Code Deactivated (Staff Exited)
+                    </span>
+                    <p className="text-[11px] text-red-700 mt-1 leading-snug">
+                      Exit Date: <strong>{getEmployeeExitDate(selectedEmployee)}</strong>. This QR cannot be scanned through the attendance webapp.
+                    </p>
+                  </div>
+                )}
+
                 {/* Visible QR Code Display Box */}
                 <div className={`p-4 rounded-2xl shadow-inner border mb-3 relative transition-all ${
-                  activePassTab === 'identity' ? 'bg-emerald-50/40 border-emerald-200' : 'bg-blue-50/40 border-blue-200'
+                  isEmployeeExited(selectedEmployee)
+                    ? 'bg-red-50/50 border-red-300'
+                    : activePassTab === 'identity' ? 'bg-emerald-50/40 border-emerald-200' : 'bg-blue-50/40 border-blue-200'
                 }`}>
                   <QRCodeCanvas 
                     value={activeQrValue} 
                     size={175}
                     level="H"
                   />
+                  {isEmployeeExited(selectedEmployee) && (
+                    <div className="absolute inset-0 bg-white/85 backdrop-blur-[2px] rounded-2xl flex flex-col items-center justify-center p-2 text-center pointer-events-none">
+                      <UserX size={34} className="text-red-600 mb-1" />
+                      <span className="text-xs font-black text-red-700 uppercase tracking-wider">QR Deactivated</span>
+                      <span className="text-[10px] font-bold text-red-600 mt-0.5">Left: {getEmployeeExitDate(selectedEmployee)}</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Contextual description for the active QR */}
@@ -2347,6 +2551,13 @@ export default function EmployeesTab({
                   <div className="mt-2 inline-flex items-center space-x-1.5 px-3 py-1 bg-amber-50 border border-amber-200/80 rounded-full text-amber-900 text-xs font-semibold">
                     <Building2 size={13} className="text-amber-700" />
                     <span>{getEmployeeOrganisation(selectedEmployee)}</span>
+                  </div>
+                )}
+
+                {isEmployeeExited(selectedEmployee) && (
+                  <div className="mt-2 inline-flex items-center space-x-1.5 px-3 py-1 bg-red-50 border border-red-200 rounded-full text-red-800 text-xs font-semibold">
+                    <UserX size={13} className="text-red-600" />
+                    <span>Relieved / Exit Date: {getEmployeeExitDate(selectedEmployee)}</span>
                   </div>
                 )}
 
@@ -2626,11 +2837,14 @@ export default function EmployeesTab({
                   const latestRecord = staffRecords.length > 0 ? staffRecords[0] : null;
                   const isCurrentlyIn = latestRecord && latestRecord.status === 'IN';
                   const isProcessing = forgotQrProcessingId === emp.empId;
+                  const isExited = isEmployeeExited(emp);
 
                   return (
                     <div 
                       key={emp.empId}
-                      className="bg-white p-3.5 rounded-2xl border border-gray-100 shadow-2xs hover:border-amber-200 transition-all flex items-center justify-between gap-3"
+                      className={`bg-white p-3.5 rounded-2xl border shadow-2xs transition-all flex items-center justify-between gap-3 ${
+                        isExited ? 'border-red-200 bg-red-50/20' : 'border-gray-100 hover:border-amber-200'
+                      }`}
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center space-x-2">
@@ -2641,7 +2855,12 @@ export default function EmployeesTab({
                           {emp.department} {emp.phone ? `• ${emp.phone}` : ''}
                         </p>
                         <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                          {isCurrentlyIn ? (
+                          {isExited ? (
+                            <span className="inline-flex items-center text-[10px] font-extrabold bg-red-100 text-red-800 px-2 py-0.5 rounded-md border border-red-300">
+                              <UserX size={10} className="mr-1 text-red-600" />
+                              Relieved / Exited ({getEmployeeExitDate(emp)}) • QR Deactivated
+                            </span>
+                          ) : isCurrentlyIn ? (
                             <span className="inline-flex items-center text-[10px] font-extrabold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-md border border-emerald-200">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse mr-1"></span>
                               Currently IN ({latestRecord?.inTime})
@@ -2659,7 +2878,11 @@ export default function EmployeesTab({
                       </div>
 
                       <div className="shrink-0 flex items-center space-x-1.5">
-                        {isCurrentlyIn ? (
+                        {isExited ? (
+                          <span className="text-[11px] font-bold text-red-600 bg-red-50 border border-red-200 px-2.5 py-1.5 rounded-xl">
+                            Deactivated
+                          </span>
+                        ) : isCurrentlyIn ? (
                           <button
                             type="button"
                             disabled={isProcessing}
