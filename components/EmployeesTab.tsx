@@ -2475,7 +2475,7 @@ export default function EmployeesTab({
                 )}
 
                 <h2 className="text-xl font-bold text-gray-800 text-center">{selectedEmployee.name}</h2>
-                <p className="text-gray-500 font-mono text-xs mt-0.5 font-bold">{selectedEmployee.empId} • {selectedEmployee.department}</p>
+                <p className="text-gray-500 font-mono text-xs mt-0.5 font-bold">{selectedEmployee.empId}</p>
 
                 {getEmployeeOrganisation(selectedEmployee) && (
                   <div className="mt-2 inline-flex items-center space-x-1.5 px-3 py-1 bg-amber-50 border border-amber-200/80 rounded-full text-amber-900 text-xs font-semibold">

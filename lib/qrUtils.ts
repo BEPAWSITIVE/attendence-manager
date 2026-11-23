@@ -180,20 +180,23 @@ export function generateCardCanvas(
   ctx.shadowColor = 'transparent';
 
   // 4. Verification Tag / QR Description Pill
-  ctx.fillStyle = isIdentity ? '#ecfdf5' : '#eff6ff';
-  ctx.roundRect(100, 180, 400, 36, 18);
-  ctx.fill();
-
-  ctx.fillStyle = isIdentity ? '#047857' : '#1d4ed8';
-  ctx.font = 'bold 14px sans-serif';
-  ctx.textAlign = 'center';
   const tagText = isIdentity 
-    ? 'SCAN WITH ANY PHONE CAMERA TO VERIFY' 
+    ? '' 
     : 'GATE ATTENDANCE SCAN QR';
-  ctx.fillText(tagText, canvas.width / 2, 203);
+
+  if (tagText) {
+    ctx.fillStyle = '#eff6ff';
+    ctx.roundRect(100, 180, 400, 36, 18);
+    ctx.fill();
+
+    ctx.fillStyle = '#1d4ed8';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(tagText, canvas.width / 2, 203);
+  }
 
   // 5. Draw QR Code
-  ctx.drawImage(qrCanvas, (canvas.width - 240) / 2, 230, 240, 240);
+  ctx.drawImage(qrCanvas, (canvas.width - 240) / 2, 220, 240, 240);
 
   // 6. Profile Details
   ctx.fillStyle = '#0f172a';
@@ -203,11 +206,7 @@ export function generateCardCanvas(
   ctx.fillStyle = '#64748b';
   ctx.font = 'bold 20px sans-serif';
   const org = getEmployeeOrganisation(emp);
-  // Do not show department in staff ID cards
-  const isStaff = !emp.category || emp.category === 'Staff';
-  const subtitle = isStaff
-    ? (org ? org.toUpperCase() : '')
-    : [emp.department, org].filter(Boolean).join(' • ').toUpperCase();
+  const subtitle = org ? org.toUpperCase() : '';
 
   if (subtitle) {
     ctx.fillText(subtitle, canvas.width / 2, 550);
@@ -242,12 +241,14 @@ export function generateCardCanvas(
   }
 
   // 9. Card Footer Notice
-  ctx.fillStyle = '#94a3b8';
-  ctx.font = '13px sans-serif';
   const footerNotice = isIdentity
-    ? 'Official digital credential authentication powered by Attendance Manager'
+    ? ''
     : 'Authorized gate pass for facility access and timekeeping logging';
-  ctx.fillText(footerNotice, canvas.width / 2, 765);
+  if (footerNotice) {
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '13px sans-serif';
+    ctx.fillText(footerNotice, canvas.width / 2, 765);
+  }
 
   return canvas;
 }
