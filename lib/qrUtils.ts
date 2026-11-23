@@ -1,5 +1,4 @@
 import { Employee } from './supabase';
-import { getEmployeeOrganisation } from './organisation';
 import JSZip from 'jszip';
 import QRCode from 'qrcode';
 
@@ -203,27 +202,18 @@ export function generateCardCanvas(
   ctx.font = 'bold 34px sans-serif';
   ctx.fillText(emp.name.toUpperCase(), canvas.width / 2, 515);
 
-  ctx.fillStyle = '#64748b';
-  ctx.font = 'bold 20px sans-serif';
-  const org = getEmployeeOrganisation(emp);
-  const subtitle = org ? org.toUpperCase() : '';
-
-  if (subtitle) {
-    ctx.fillText(subtitle, canvas.width / 2, 550);
-  }
-
   // 7. Divider Line
   ctx.strokeStyle = '#e2e8f0';
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(90, 580);
-  ctx.lineTo(510, 580);
+  ctx.moveTo(90, 560);
+  ctx.lineTo(510, 560);
   ctx.stroke();
 
   // 8. ID & Meta Badges
   ctx.fillStyle = '#0f172a';
   ctx.font = 'bold 26px monospace';
-  ctx.fillText(`ID: ${emp.empId}`, canvas.width / 2, 625);
+  ctx.fillText(`ID: ${emp.empId}`, canvas.width / 2, 610);
 
   let subDetail = '';
   if (emp.category === 'Vehicle' && emp.vehicle_plate) {
@@ -237,7 +227,7 @@ export function generateCardCanvas(
   if (subDetail) {
     ctx.fillStyle = '#475569';
     ctx.font = 'bold 20px monospace';
-    ctx.fillText(subDetail, canvas.width / 2, 665);
+    ctx.fillText(subDetail, canvas.width / 2, 650);
   }
 
   // 9. Card Footer Notice

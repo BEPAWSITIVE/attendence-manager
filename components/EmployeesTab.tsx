@@ -2477,13 +2477,6 @@ export default function EmployeesTab({
                 <h2 className="text-xl font-bold text-gray-800 text-center">{selectedEmployee.name}</h2>
                 <p className="text-gray-500 font-mono text-xs mt-0.5 font-bold">{selectedEmployee.empId}</p>
 
-                {getEmployeeOrganisation(selectedEmployee) && (
-                  <div className="mt-2 inline-flex items-center space-x-1.5 px-3 py-1 bg-amber-50 border border-amber-200/80 rounded-full text-amber-900 text-xs font-semibold">
-                    <Building2 size={13} className="text-amber-700" />
-                    <span>{getEmployeeOrganisation(selectedEmployee)}</span>
-                  </div>
-                )}
-
                 {isEmployeeExited(selectedEmployee) && (
                   <div className="mt-2 inline-flex items-center space-x-1.5 px-3 py-1 bg-red-50 border border-red-200 rounded-full text-red-800 text-xs font-semibold">
                     <UserX size={13} className="text-red-600" />
