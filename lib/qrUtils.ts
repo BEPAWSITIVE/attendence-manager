@@ -164,7 +164,7 @@ export function generateCardCanvas(
   ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
   ctx.font = 'bold 18px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('PEEPAL FARM / BE PAWSITIVE', canvas.width / 2, 45);
+  ctx.fillText('PEEPAL FARM', canvas.width / 2, 45);
 
   ctx.fillStyle = '#ffffff';
   ctx.font = 'bold 36px sans-serif';
@@ -203,8 +203,15 @@ export function generateCardCanvas(
   ctx.fillStyle = '#64748b';
   ctx.font = 'bold 20px sans-serif';
   const org = getEmployeeOrganisation(emp);
-  const deptAndOrg = [emp.department || 'GENERAL', org].filter(Boolean).join(' • ');
-  ctx.fillText(deptAndOrg.toUpperCase(), canvas.width / 2, 550);
+  // Do not show department in staff ID cards
+  const isStaff = !emp.category || emp.category === 'Staff';
+  const subtitle = isStaff
+    ? (org ? org.toUpperCase() : '')
+    : [emp.department, org].filter(Boolean).join(' • ').toUpperCase();
+
+  if (subtitle) {
+    ctx.fillText(subtitle, canvas.width / 2, 550);
+  }
 
   // 7. Divider Line
   ctx.strokeStyle = '#e2e8f0';

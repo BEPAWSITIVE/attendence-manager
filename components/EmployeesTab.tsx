@@ -1253,41 +1253,6 @@ export default function EmployeesTab({
                     />
                   </div>
                 </div>
-
-                {category === 'Staff' && (
-                  <div className="p-3 bg-blue-50/50 rounded-2xl border border-blue-100">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[11px] font-extrabold text-blue-900 uppercase tracking-wider">
-                        Recommended Departments:
-                      </span>
-                      {department && (
-                        <button
-                          type="button"
-                          onClick={() => setDepartment("")}
-                          className="text-[10px] text-blue-600 hover:text-blue-800 font-bold"
-                        >
-                          Clear
-                        </button>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1 py-0.5">
-                      {RECOMMENDED_DEPARTMENTS.map(dept => (
-                        <button
-                          key={dept}
-                          type="button"
-                          onClick={() => setDepartment(dept)}
-                          className={`text-xs px-2.5 py-1 rounded-lg border transition-all font-medium cursor-pointer ${
-                            department.toLowerCase() === dept.toLowerCase()
-                              ? 'bg-blue-600 text-white border-blue-600 shadow-2xs font-bold'
-                              : 'bg-white hover:bg-blue-100 text-gray-700 border-gray-200'
-                          }`}
-                        >
-                          {dept}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
               
                 {category !== 'Parcel' && (
                   <div className="pt-2">
@@ -1900,41 +1865,6 @@ export default function EmployeesTab({
                       />
                     </div>
                   </div>
-
-                  {editCategory === 'Staff' && (
-                    <div className="p-3 bg-blue-50/50 rounded-2xl border border-blue-100">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-[11px] font-extrabold text-blue-900 uppercase tracking-wider">
-                          Recommended Departments:
-                        </span>
-                        {editDepartment && (
-                          <button
-                            type="button"
-                            onClick={() => setEditDepartment("")}
-                            className="text-[10px] text-blue-600 hover:text-blue-800 font-bold"
-                          >
-                            Clear
-                          </button>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1 py-0.5">
-                        {RECOMMENDED_DEPARTMENTS.map(dept => (
-                          <button
-                            key={dept}
-                            type="button"
-                            onClick={() => setEditDepartment(dept)}
-                            className={`text-xs px-2.5 py-1 rounded-lg border transition-all font-medium cursor-pointer ${
-                              editDepartment.toLowerCase() === dept.toLowerCase()
-                                ? 'bg-blue-600 text-white border-blue-600 shadow-2xs font-bold'
-                                : 'bg-white hover:bg-blue-100 text-gray-700 border-gray-200'
-                            }`}
-                          >
-                            {dept}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
 
                   <div>
                     <label className="block text-xs font-bold text-gray-500 mb-1">Identity ID No. (Aadhar, PAN, etc.)</label>
