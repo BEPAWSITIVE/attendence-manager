@@ -2,7 +2,6 @@ import { Metadata } from 'next';
 import { supabase, Employee } from '@/lib/supabase';
 import { 
   Briefcase, 
-  Calendar, 
   Truck, 
   Check, 
   Clock, 
@@ -10,12 +9,10 @@ import {
   Contact, 
   ShieldAlert, 
   XCircle,
-  Building2,
   CalendarOff
 } from 'lucide-react';
 import RealtimeVerificationTimestamp from '@/components/RealtimeVerificationTimestamp';
 import { formatIndianDateTime } from '@/lib/timeFormat';
-import { getEmployeeOrganisation } from '@/lib/organisation';
 import { getEmployeeExitDate, isEmployeeExited } from '@/lib/exitStatus';
 
 type Props = {
@@ -52,7 +49,7 @@ async function fetchEmployee(id: string): Promise<Employee | null> {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const emp = await fetchEmployee(params.id);
-  const orgName = emp ? (getEmployeeOrganisation(emp) || "Peepal Farm") : "Peepal Farm";
+  const orgName = "Peepal Farm";
   const exitDate = getEmployeeExitDate(emp);
 
   if (!emp) {
@@ -71,10 +68,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   return {
     title: `Verified: ${emp.name} (${emp.empId}) | ${orgName}`,
-    description: `Official identity verification for ${emp.name}, ${emp.department} at ${orgName}. Status: Officially Verified.`,
+    description: `Official identity verification for ${emp.name}, ${emp.department || 'Operations'} at ${orgName}. Status: Officially Verified.`,
     openGraph: {
       title: `Official Personnel Verification: ${emp.name}`,
-      description: `${orgName} Authorized ${emp.category || 'Staff'} • ${emp.department} • ID: ${emp.empId}`,
+      description: `${orgName} Authorized ${emp.category || 'Staff'} • ${emp.department || 'Operations'} • ID: ${emp.empId}`,
       siteName: `${orgName} Identity Portal`,
     },
   };
@@ -84,7 +81,6 @@ export default async function VerifyPage({ params }: Props) {
   const rawId = params.id;
   const decodedId = decodeURIComponent(rawId || '').trim();
   const emp = await fetchEmployee(decodedId);
-  const organisation = getEmployeeOrganisation(emp);
   const exitDate = getEmployeeExitDate(emp);
   const isExited = !!exitDate;
   const cleanGroupMembers = emp?.group_members
@@ -95,15 +91,6 @@ export default async function VerifyPage({ params }: Props) {
 
   // Live real-time timestamp formatted in Indian Standard Time (IST)
   const verifiedTimeString = formatIndianDateTime(new Date());
-
-  // Member Since date: "Nov 2026"
-  let joinDateString = 'Nov 2026';
-  if (emp?.createdAt) {
-    try {
-      const d = new Date(emp.createdAt);
-      joinDateString = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-    } catch (e) {}
-  }
 
   return (
     <div className="min-h-screen bg-[#fafcfb] flex flex-col items-center justify-start pb-8 sm:pb-12 font-sans antialiased text-slate-800 selection:bg-emerald-200">
@@ -182,23 +169,6 @@ export default async function VerifyPage({ params }: Props) {
                       </div>
                     )}
 
-                    {/* Organisation Card */}
-                    {organisation && (
-                      <div className="flex items-center p-3 rounded-[20px] bg-gradient-to-r from-[#fef3c7]/60 to-[#fffdf5] border border-amber-200/70 shadow-xs">
-                        <div className="w-12 h-12 rounded-2xl bg-[#fef3c7] border border-[#fde68a] flex items-center justify-center text-[#d97706] shrink-0 mr-3.5 shadow-xs">
-                          <Building2 size={22} className="stroke-[2.2]" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <span className="text-xs font-semibold text-amber-800 block leading-tight">
-                            Organisation
-                          </span>
-                          <span className="text-base font-bold text-slate-900 truncate block mt-0.5">
-                            {organisation}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
                     {/* Department / Role Card */}
                     <div className="flex items-center p-3 rounded-[20px] bg-gradient-to-r from-[#f0f4ff]/80 to-[#f9faff] border border-blue-100/60 shadow-xs">
                       <div className="w-12 h-12 rounded-2xl bg-[#eff6ff] border border-[#dbeafe] flex items-center justify-center text-[#1d63ed] shrink-0 mr-3.5 shadow-xs">
@@ -210,21 +180,6 @@ export default async function VerifyPage({ params }: Props) {
                         </span>
                         <span className="text-base font-bold text-slate-900 truncate block mt-0.5">
                           {emp.department || 'General Operations'}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Member Since Card */}
-                    <div className="flex items-center p-3 rounded-[20px] bg-gradient-to-r from-[#faedff]/80 to-[#fcfaff] border border-purple-100/60 shadow-xs">
-                      <div className="w-12 h-12 rounded-2xl bg-[#faf5ff] border border-[#f3e8ff] flex items-center justify-center text-[#9333ea] shrink-0 mr-3.5 shadow-xs">
-                        <Calendar size={22} className="stroke-[2.2]" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-xs font-semibold text-slate-500 block leading-tight">
-                          Member Since
-                        </span>
-                        <span className="text-base font-bold text-slate-900 truncate block mt-0.5">
-                          {joinDateString}
                         </span>
                       </div>
                     </div>
@@ -271,7 +226,7 @@ export default async function VerifyPage({ params }: Props) {
                           Credential Inactive • Former Personnel
                         </p>
                         <p className="text-[#991b1b] mt-0.5 leading-normal">
-                          This individual is no longer an active representative of <strong className="font-bold text-[#7f1d1d]">{organisation || "Peepal Farm"}</strong> (Relieved / Exit Date: <strong className="font-bold text-[#7f1d1d]">{exitDate}</strong>). This credential is deactivated and cannot be used for attendance or facility access.
+                          This individual is no longer an active representative of <strong className="font-bold text-[#7f1d1d]">Peepal Farm</strong> (Relieved / Exit Date: <strong className="font-bold text-[#7f1d1d]">{exitDate}</strong>). This credential is deactivated and cannot be used for attendance or facility access.
                         </p>
                       </div>
                     </div>
@@ -286,7 +241,7 @@ export default async function VerifyPage({ params }: Props) {
                           Official Digital Credential Valid
                         </p>
                         <p className="text-[#166534] mt-0.5 leading-normal">
-                          This individual is an authorized representative of <strong className="font-bold text-[#0a4a25]">{organisation || "Peepal Farm"}</strong>. The credential record is synchronized directly with our live registry.
+                          This individual is an authorized representative of <strong className="font-bold text-[#0a4a25]">Peepal Farm</strong>. The credential record is synchronized directly with our live registry.
                         </p>
                       </div>
                     </div>
